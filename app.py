@@ -5,7 +5,7 @@ from threading import Thread
 app = Flask(__name__)
 
 # ================= إعداداتك الخاصة =================
-BOT_TOKEN = "8725128005:8725128005:AAH3Pp14tKAEsLPvcHOGdh8JqOnD74KKLNs"
+BOT_TOKEN = "8725128005:AAH3Pp14tKAEsLPvcHOGdh8JqOnD74KKLNs"
 CHAT_ID = "7041600701"
 # ضع رابط الـ Render الخاص بك هنا بعد الحصول عليه في الخطوات القادمة
 MY_LINK = "https://sif-e7ad.onrender.com" 
