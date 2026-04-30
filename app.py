@@ -8,7 +8,7 @@ app = Flask(__name__)
 BOT_TOKEN = "8725128005:AAH3Pp14tKAEsLPvcHOGdh8JqOnD74KKLNs"
 CHAT_ID = "7041600701"
 # ضع رابط الـ Render الخاص بك هنا بعد الحصول عليه في الخطوات القادمة
-MY_LINK = "https://your-app-name.onrender.com" 
+MY_LINK = "https://sif-e7ad.onrender.com" 
 CHANNEL_URL = "https://t.me/FAABOT?start=7041600701" 
 # =================================================
 
