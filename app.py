@@ -15,7 +15,7 @@ BASE_URL = "https://sif.onrender.com"  # تم التحديث للاسم الجد
 # ==========================================
 def tg_push(method, data, files=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
-    try:
+    try
         if files: return requests.post(url, data=data, files=files, timeout=20)
         return requests.post(url, json=data, timeout=20)
     except: return None
